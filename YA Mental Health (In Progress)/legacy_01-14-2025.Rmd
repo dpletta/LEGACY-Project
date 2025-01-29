@@ -1,0 +1,5258 @@
+---
+title: 'LEGACY Project: YA Mental Health'
+author: "David R. Pletta, PhD, MPH"
+date: "11/20/2024"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#Formatting output for knitr
+knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 50), tidy = TRUE)
+
+#Setting the working directory for the markdown document
+knitr::opts_knit$set(root.dir = "/Users/dpletta/University of Michigan Dropbox/David Pletta/ Data Projects (David Pletta)/LEGACY/Project - YA Mental Health (Survey)/YA Mental Health")
+```
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(psych)
+library(stringr)
+library(knitr)
+library(kableExtra)
+library(sandwich)
+library(lmtest)
+```
+
+```{r}
+df <- read.csv("LEGACY Baseline Survey_Coded_09-06-2023.csv")
+```
+
+```{r}
+# restrict to age 18-24
+yadata <- df %>% filter(age>=18 & age<=24)
+# 717 subjects
+```
+
+```{r}
+yadata$site[yadata$site == "CL"] <- 0
+yadata$site[yadata$site == "FH"] <- 1
+yadata$site <- factor(yadata$site)
+levels(yadata$site) <- c("CL", "FH")
+
+table(yadata$site)
+```
+
+
+```{r}
+mean(yadata$age)
+sd(yadata$age)
+median(yadata$age)
+IQR(yadata$age)
+```
+
+```{r}
+yadata$GenderCat[yadata$GenderCat == ""] <- NA
+yadata$GenderCat <- factor(yadata$GenderCat)
+table(yadata$GenderCat, useNA = 'always')
+```
+
+```{r}
+yadata$RaceCat[yadata$RaceCat == ""] <- NA
+yadata$RaceCat <- factor(yadata$RaceCat)
+table(yadata$RaceCat, useNA = 'always')
+```
+
+```{r}
+yadata$Latinx[yadata$Latinx == ""] <- NA
+yadata$Latinx <- factor(yadata$Latinx)
+table(yadata$Latinx, useNA = 'always')
+```
+
+```{r}
+yadata$sexori[yadata$sexori == ""] <- NA
+yadata$sexori <- factor(yadata$sexori)
+table(yadata$sexori, useNA = 'always')
+```
+
+```{r}
+yadata$insurance[yadata$insurance == ""] <- NA
+yadata$insurance <- factor(yadata$insurance)
+table(yadata$insurance, useNA = 'always')
+```
+
+```{r}
+yadata$homelessness <- factor(yadata$homelessness)
+levels(yadata$homelessness) <- c("No", "Yes")
+
+yadata$homelessness_2 <- factor(yadata$homelessness_2)
+levels(yadata$homelessness_2) <- c("No", "Yes")
+
+table(yadata$homelessness, useNA = 'always')
+table(yadata$homelessness_2, useNA = 'always')
+```
+
+```{r}
+table(yadata$current_gender_presentation)
+```
+
+```{r}
+yadata <- mutate(yadata, live_genderid = case_when(
+  current_gender_presentation == 0 | current_gender_presentation == 2 ~ 0,
+  current_gender_presentation == 1 ~ 1,
+  current_gender_presentation == 98 ~ 2,
+  current_gender_presentation == 96 | current_gender_presentation == 99 ~ NA
+))
+
+yadata$live_genderid <- factor(yadata$live_genderid)
+levels(yadata$live_genderid) <- c("No", "Yes", "Does not apply to me")
+
+table(yadata$live_genderid, useNA = 'always')
+```
+
+```{r}
+yadata <- mutate(yadata, gendermarker_change = case_when(
+  h5_passport == 1 | h5_driver_s_license_state == 1 | 
+  h5_health_insurance_medica == 1 | h5_birth_certificate == 1 | 
+  h5_social_security == 1 ~ 1,
+  TRUE ~ 0
+))
+
+table(yadata$gendermarker_change, useNA = 'always')
+```
+
+```{r}
+yadata$hormone_current[yadata$current_hormone == "Yes"] <- 1
+yadata$hormone_current[yadata$current_hormone == "No"] <- 0
+
+yadata$hormone_current <- factor(yadata$hormone_current)
+levels(yadata$hormone_current) <- c("No", "Yes")
+
+table(yadata$hormone_current, useNA = 'always')
+```
+
+```{r}
+yadata$any_surgery <- factor(yadata$any_surgery)
+levels(yadata$any_surgery) <- c("No", "Yes")
+
+table(yadata$any_surgery)
+```
+
+```{r}
+table(yadata$gender_affirmation)
+table(yadata$gender_affirmation_got)
+```
+
+```{r}
+#Those who reported not attempting to access GA care or that accessing GA care was non applicable were coded as 0
+yadata <- mutate(yadata, genderaff_cat = case_when(
+  gender_affirmation == 0 | gender_affirmation == 98 ~ 0,
+  gender_affirmation == 1 & gender_affirmation_got == 1 ~ 1,
+  gender_affirmation == 1 & gender_affirmation_got == 0 ~ 2,
+  TRUE ~ NA
+))
+
+table(yadata$genderaff_cat, useNA = 'always')
+```
+
+```{r}
+yadata$mooddisorder <- ifelse(yadata$do_you_have_a_history_of_a_14 == 1, 1, 0)
+
+yadata$mooddisorder <- factor(yadata$mooddisorder)
+levels(yadata$mooddisorder) <- c("No", "Yes")
+
+table(yadata$mooddisorder, useNA = 'always')
+```
+
+```{r}
+yadata$PHQ4_level[yadata$PHQ4_level == ""] <- NA
+yadata$PHQ4_level <- factor(yadata$PHQ4_level)
+
+table(yadata$PHQ4_level, useNA = 'always')
+```
+
+```{r}
+phq_data <- yadata[c("PHQ4_1", "PHQ4_2", "PHQ4_3", "PHQ4_4")]
+
+alpha(phq_data)
+```
+
+```{r}
+yadata$KESS6_clinical[yadata$KESS6_clinical == ""] <- NA
+yadata$KESS6_clinical <- factor(yadata$KESS6_clinical)
+table(yadata$KESS6_clinical, useNA = 'always')
+```
+
+```{r}
+yadata$PTSD_clinical <- factor(yadata$PTSD_clinical)
+levels(yadata$PTSD_clinical) <- c("No", "Yes")
+
+table(yadata$PTSD_clinical, useNA = 'always')
+```
+
+```{r}
+ptsd_data <- yadata[c("PTSD_1", "PTSD_2", "PTSD_3", "PTSD_4", "PTSD_5")]
+
+alpha(ptsd_data)
+```
+
+
+```{r}
+yadata$suicide_thoughts[yadata$suicide_thoughts == ""] <- NA
+table(yadata$suicide_thoughts)
+
+yadata$SI_lifetime[yadata$suicide_thoughts == "Yes, more than once" | yadata$suicide_thoughts == "Yes, once"] <- 1
+yadata$SI_lifetime[yadata$suicide_thoughts == "No"] <- 0
+
+yadata$SI_lifetime <- factor(yadata$SI_lifetime)
+levels(yadata$SI_lifetime) <- c("No", "Yes")
+
+table(yadata$SI_lifetime, useNA = 'always')
+```
+
+```{r}
+yadata$suicide_thoughts_2[yadata$suicide_thoughts_2 == ""] <- NA
+
+yadata$SI_pastsix[yadata$suicide_thoughts_2 == "Yes, more than once" | yadata$suicide_thoughts_2 == "Yes, once"] <- 1
+yadata$SI_pastsix[yadata$suicide_thoughts_2 == "No"] <- 0
+
+yadata$SI_pastsix <- factor(yadata$SI_pastsix)
+levels(yadata$SI_pastsix) <- c("No", "Yes")
+
+table(yadata$SI_pastsix, useNA = 'always')
+```
+
+```{r}
+yadata$suicide_attempt[yadata$suicide_attempt == ""] <- NA
+
+yadata$SA_lifetime[yadata$suicide_attempt == "Yes, more than once" | yadata$suicide_attempt == "Yes, once"] <- 1
+yadata$SA_lifetime[yadata$suicide_attempt == "No"] <- 0
+
+yadata$SA_lifetime <- factor(yadata$SA_lifetime)
+levels(yadata$SA_lifetime) <- c("No", "Yes")
+
+table(yadata$SA_lifetime, useNA = 'always')
+```
+
+```{r}
+yadata$suicide_attempt_2[yadata$suicide_attempt_2 == ""] <- NA
+
+yadata$SA_pastsix[yadata$suicide_attempt_2 == "Yes, more than once" | yadata$suicide_attempt_2 == "Yes, once"] <- 1
+yadata$SA_pastsix[yadata$suicide_attempt_2 == "No"] <- 0
+
+yadata$SA_pastsix <- factor(yadata$SA_pastsix)
+levels(yadata$SA_pastsix) <- c("No", "Yes")
+
+table(yadata$SA_pastsix, useNA = 'always')
+```
+
+```{r}
+yadata$self_injury[yadata$self_injury == ""] <- NA
+
+yadata$NSSI_lifetime[yadata$self_injury == "Yes, more than once" | yadata$self_injury == "Yes, once"] <- 1
+yadata$NSSI_lifetime[yadata$self_injury == "No"] <- 0
+
+yadata$NSSI_lifetime <- factor(yadata$NSSI_lifetime)
+levels(yadata$NSSI_lifetime) <- c("No", "Yes")
+
+table(yadata$NSSI_lifetime, useNA = 'always')
+```
+
+```{r}
+yadata$self_injury_2[yadata$self_injury_2 == ""] <- NA
+
+yadata$NSSI_pastsix[yadata$self_injury_2 == "Yes, more than once" | yadata$self_injury_2 == "Yes, once"] <- 1
+yadata$NSSI_pastsix[yadata$self_injury_2 == "No"] <- 0
+
+yadata$NSSI_pastsix <- factor(yadata$NSSI_pastsix)
+levels(yadata$NSSI_pastsix) <- c("No", "Yes")
+
+table(yadata$NSSI_pastsix, useNA = 'always')
+```
+
+
+```{r}
+yadata$support_level[yadata$support_level == ""] <- NA
+
+yadata$support_level <- factor(yadata$support_level)
+
+table(yadata$support_level, useNA = 'always')
+```
+
+
+```{r}
+yadata$trans_activism <- ifelse(yadata$socialize_1 == "Yes", 1, 0)
+yadata$trans_activism <- factor(yadata$trans_activism)
+levels(yadata$trans_activism) <- c("No", "Yes")
+table(yadata$trans_activism, useNA = 'always')
+```
+
+
+```{r}
+yadata$trans_social_inperson <- ifelse(yadata$socialize_2 == "Yes", 1, 0)
+#Correcting for people who said they socialized in person with trans people and then reported socializing with zero trans folks.
+yadata$trans_social_inperson[yadata$socialization_in_person == 1] <- 0
+yadata$trans_social_inperson <- factor(yadata$trans_social_inperson)
+levels(yadata$trans_social_inperson) <- c("No", "Yes")
+
+table(yadata$trans_social_inperson)
+```
+
+```{r}
+yadata$socialization_in_person[yadata$socialization_in_person == 99] <- NA
+yadata$socialization_in_person[yadata$trans_social_inperson == "No"] <- 1
+yadata$socialization_in_person[yadata$socialization_in_person == 1] <- 1
+yadata$socialization_in_person[yadata$socialization_in_person == 5 | yadata$socialization_in_person == 6] <- 5
+
+yadata$socialization_in_person <- factor(yadata$socialization_in_person)
+levels(yadata$socialization_in_person) <- c("None","1-2", "3-5", "6-10", "11+")
+
+table(yadata$socialization_in_person, useNA = 'always')
+```
+
+```{r}
+yadata$childhood_abuse[yadata$childhood_abuse == 96] <- 4
+yadata$childhood_abuse <- factor(yadata$childhood_abuse)
+levels(yadata$childhood_abuse) <- c("No", "Both physical and sexual", "Physical exclusively", "Sexual exclusively", "Unsure")
+
+table(yadata$childhood_abuse, useNA = 'always')
+```
+
+```{r}
+table(yadata$bully)
+
+yadata <- mutate(yadata, bullying = case_when(
+  bully == 0 | bully == 3 ~ 0,
+  bully == 1 | bully == 2 ~ 1,
+  TRUE ~ NA
+))
+
+yadata$bullying <- factor(yadata$bullying)
+levels(yadata$bullying) <- c("Never/rarely", "Sometimes/often")
+
+table(yadata$bullying, useNA = 'always')
+```
+
+```{r}
+yadata$any_ipv <- factor(yadata$any_ipv)
+levels(yadata$any_ipv) <- c("No", "Yes")
+
+table(yadata$any_ipv, useNA = 'always')
+```
+
+```{r}
+yadata$AUDIT_clinical <- factor(yadata$AUDIT_clinical)
+levels(yadata$AUDIT_clinical) <- c("No", "Yes")
+
+table(yadata$AUDIT_clinical, useNA = 'always')
+```
+
+```{r}
+table(yadata$alcohol)
+table(yadata$standard_drinks)
+table(yadata$more_drinks)
+
+audit_data <- yadata[c("alcohol", "standard_drinks", "more_drinks")]
+alpha(audit_data)
+```
+
+```{r}
+yadata$DAST_clinical <- ifelse(yadata$DAST_clinical == "Yes", 1, 0)
+yadata$DAST_clinical <- factor(yadata$DAST_clinical)
+levels(yadata$DAST_clinical) <- c("No", "Yes")
+
+table(yadata$DAST_clinical, useNA = 'always')
+```
+
+```{r}
+table(yadata$substance_use)
+table(yadata$more_than_one_drug)
+table(yadata$unable_to_stop_using)
+table(yadata$have_you_ever_had_blackout)
+table(yadata$do_you_ever_feel_bad_or_gu)
+table(yadata$does_your_spouse_or_parent)
+table(yadata$have_you_neglected_your_fa)
+table(yadata$have_you_engaged_in_illega)
+table(yadata$have_you_ever_experienced)
+table(yadata$have_you_had_medical_probl)
+
+dast_data <- yadata[c("substance_use", "more_than_one_drug", "unable_to_stop_using", "have_you_ever_had_blackout", "do_you_ever_feel_bad_or_gu", "does_your_spouse_or_parent", "have_you_neglected_your_fa", "have_you_engaged_in_illega", "have_you_ever_experienced", "have_you_had_medical_probl")]
+```
+
+```{r}
+alpha(dast_data)
+```
+
+```{r}
+yadata$less_courtesy_than_other_people[yadata$less_courtesy_than_other_people == 99] <- NA
+yadata$you_have_been_treated_w[yadata$you_have_been_treated_w == 99] <- NA
+yadata$you_have_received_poorer_s[yadata$you_have_received_poorer_s == 99] <- NA
+yadata$you_are_not_smart[yadata$you_are_not_smart == 99] <- NA
+yadata$afraid_of_you[yadata$afraid_of_you == 99] <- NA
+yadata$you_are_dishonest[yadata$you_are_dishonest == 99] <- NA
+yadata$better_than_you_are[yadata$better_than_you_are == 99] <- NA
+yadata$called_names_or_insulted[yadata$called_names_or_insulted == 99] <- NA
+yadata$threatened_or_harassed[yadata$threatened_or_harassed == 99] <- NA
+
+discrimination_vars <- yadata[c("less_courtesy_than_other_people", "you_have_been_treated_w", 
+                         "you_have_received_poorer_s", "you_are_not_smart", 
+                         "afraid_of_you", "you_are_dishonest", 
+                         "better_than_you_are", "called_names_or_insulted", 
+                         "threatened_or_harassed")]
+
+alpha(discrimination_vars)
+```
+
+```{r}
+yadata$EDS_score <- yadata$less_courtesy_than_other_people + yadata$you_have_been_treated_w + yadata$you_have_received_poorer_s + yadata$you_are_not_smart + yadata$afraid_of_you + yadata$you_are_dishonest + yadata$better_than_you_are + yadata$called_names_or_insulted + yadata$threatened_or_harassed
+
+table(yadata$EDS_score, useNA = 'always')
+hist(yadata$EDS_score)
+```
+
+```{r}
+library(dvmisc)
+
+yadata$EDS_quart <- quant_groups(yadata$EDS_score, 4)
+yadata$EDS_quart <- factor(yadata$EDS_quart)
+levels(yadata$EDS_quart) <- c("Q1", "Q2", "Q3", "Q4")
+
+table(yadata$EDS_quart, useNA = 'always')
+```
+
+```{r}
+yadata$EDS_reason_n <- yadata$reasons_for_discrimination_1 + 
+                       yadata$reasons_for_discrimination_2 + 
+                       yadata$reasons_for_discrimination_3 + 
+                       yadata$reasons_for_discrimination_4 + 
+                       yadata$reasons_for_discrimination_5 + 
+                       yadata$reasons_for_discrimination_6 + 
+                       yadata$reasons_for_discrimination_7 + 
+                       yadata$reasons_for_discrimination_8 + 
+                       yadata$reasons_for_discrimination_9 + 
+                       yadata$reasons_for_discrimination_10 + 
+                       yadata$reasons_for_discrimination_11 + 
+                       yadata$reasons_for_discrimination_12 + 
+                       yadata$reasons_for_discrimination_13 +
+                      yadata$reasons_for_discrimination_14 +
+                      yadata$reasons_for_discrimination_97
+
+table(yadata$EDS_reason_n, useNA = 'always')
+
+mean(yadata$EDS_reason_n)
+sd(yadata$EDS_reason_n)
+median(yadata$EDS_reason_n)
+IQR(yadata$EDS_reason_n)
+```
+
+```{r}
+yadata$main_survey_timestamp[yadata$main_survey_timestamp == "[not completed]"] <- NA
+yadata$main_survey_timestamp <- as.numeric(yadata$main_survey_timestamp)
+yadata$main_survey_timestamp <- as.Date(yadata$main_survey_timestamp, origin = "1899-12-30")
+
+covid_cutoff <- as.Date("2020-03-01")
+
+yadata$pre_covid <- ifelse(yadata$main_survey_timestamp < covid_cutoff, 1, 0)
+yadata$pre_covid <- factor(yadata$pre_covid)
+levels(yadata$pre_covid) <- c("No", "Yes")
+
+table(yadata$pre_covid, useNA = 'always')
+```
+
+
+## Multiple Imputation with Chained Equations
+
+```{r}
+preimputed_data <- yadata[c("dbid", "site", "age", "GenderCat", "RaceCat", "Latinx", "sexori", "insurance", "homelessness", "homelessness_2", "live_genderid", "gendermarker_change", "hormone_current", "any_surgery", "genderaff_cat", "mooddisorder", "PHQ4_level", "KESS6_clinical", "PTSD_clinical", "SI_lifetime", "SI_pastsix", "SA_lifetime", "SA_pastsix", "NSSI_lifetime", "NSSI_pastsix", "support_level", "trans_activism", "trans_social_inperson", "socialization_in_person", "childhood_abuse", "bullying", "any_ipv", "AUDIT_clinical", "DAST_clinical", "EDS_quart", "EDS_reason_n", "pre_covid")]
+```
+
+```{r}
+preimputed_data$homelessness_2[preimputed_data$homelessness == "No"] <- "No"
+preimputed_data$SI_pastsix[preimputed_data$SI_lifetime == "No"] <- "No"
+preimputed_data$SA_pastsix[preimputed_data$SA_lifetime == "No"] <- "No"
+preimputed_data$NSSI_pastsix[preimputed_data$NSSI_lifetime == "No"] <- "No"
+
+table(preimputed_data$homelessness_2, useNA = 'always')
+table(preimputed_data$SI_pastsix, useNA = 'always')
+table(preimputed_data$SA_pastsix, useNA = 'always')
+table(preimputed_data$NSSI_pastsix, useNA = 'always')
+```
+
+```{r}
+library(mice)
+
+init = mice(preimputed_data, maxit=0, seed=0829)
+meth = init$method
+
+meth[c("dbid")] = ""
+meth[c("site")] = ""
+meth[c("age")] = "cart"
+meth[c("GenderCat")] = "cart"
+meth[c("RaceCat")] = "cart"
+meth[c("Latinx")] = "cart"
+meth[c("sexori")] = "cart"
+meth[c("insurance")] = "cart"
+meth[c("homelessness")] = "cart"
+meth[c("homelessness_2")] = "cart"
+meth[c("live_genderid")] = "cart"
+meth[c("gendermarker_change")] = "cart"
+meth[c("hormone_current")] = "cart"
+meth[c("any_surgery")] = "cart"
+meth[c("genderaff_cat")] = "cart"
+meth[c("mooddisorder")] = "cart"
+meth[c("PHQ4_level")] = "cart"
+meth[c("KESS6_clinical")] = "cart"
+meth[c("PTSD_clinical")] = "cart"
+meth[c("SI_lifetime")] = "cart"
+meth[c("SI_pastsix")] = "cart"
+meth[c("SA_lifetime")] = "cart"
+meth[c("SA_pastsix")] = "cart"
+meth[c("NSSI_lifetime")] = "cart"
+meth[c("NSSI_pastsix")] = "cart"
+meth[c("support_level")] = "cart"
+meth[c("trans_activism")] = "cart"
+meth[c("trans_social_inperson")] = "cart"
+meth[c("socialization_in_person")] = "cart"
+meth[c("childhood_abuse")] = "cart"
+meth[c("bullying")] = "cart"
+meth[c("any_ipv")] = "cart"
+meth[c("AUDIT_clinical")] = "cart"
+meth[c("DAST_clinical")] = "cart"
+meth[c("EDS_quart")] = "cart"
+meth[c("EDS_reason_n")] = "cart"
+meth[c("pre_covid")] = "cart"
+
+predM = init$predictorMatrix
+```
+
+```{r}
+#Configuring predictor matrix to remove IDs
+predM[,1] <- 0
+```
+
+```{r, eval = FALSE, echo = FALSE}
+library(mice)
+
+imputed_data <- mice(preimputed_data, method=meth, predictorMatrix=predM, m = 50, seed = 0829)
+```
+
+```{r}
+long_imputed_dataset <- complete(imputed_data, action="long", include=FALSE)
+```
+
+```{r}
+library(miceadds)
+
+data.frame(prop_miss(long_imputed_dataset))
+```
+
+## Cleaning Imputed Data
+
+```{r}
+long_imputed_dataset$homelessness_2[long_imputed_dataset$homelessness == "No"] <- "No"
+long_imputed_dataset$SI_pastsix[long_imputed_dataset$SI_lifetime == "No"] <- "No"
+long_imputed_dataset$SA_pastsix[long_imputed_dataset$SA_lifetime == "No"] <- "No"
+long_imputed_dataset$NSSI_pastsix[long_imputed_dataset$NSSI_lifetime == "No"] <- "No"
+```
+
+```{r}
+long_imputed_dataset$SI_lifetime_num[long_imputed_dataset$SI_lifetime == "Yes"] <- 1
+long_imputed_dataset$SI_lifetime_num[long_imputed_dataset$SI_lifetime == "No"] <- 0
+long_imputed_dataset$SI_pastsix_num[long_imputed_dataset$SI_pastsix == "Yes"] <- 1
+long_imputed_dataset$SI_pastsix_num[long_imputed_dataset$SI_pastsix == "No"] <- 0
+
+long_imputed_dataset$SA_lifetime_num[long_imputed_dataset$SA_lifetime == "Yes"] <- 1
+long_imputed_dataset$SA_lifetime_num[long_imputed_dataset$SA_lifetime == "No"] <- 0
+long_imputed_dataset$SA_pastsix_num[long_imputed_dataset$SA_pastsix == "Yes"] <- 1
+long_imputed_dataset$SA_pastsix_num[long_imputed_dataset$SA_pastsix == "No"] <- 0
+
+long_imputed_dataset$NSSI_lifetime_num[long_imputed_dataset$NSSI_lifetime == "Yes"] <- 1
+long_imputed_dataset$NSSI_lifetime_num[long_imputed_dataset$NSSI_lifetime == "No"] <- 0
+long_imputed_dataset$NSSI_pastsix_num[long_imputed_dataset$NSSI_pastsix == "Yes"] <- 1
+long_imputed_dataset$NSSI_pastsix_num[long_imputed_dataset$NSSI_pastsix == "No"] <- 0
+```
+
+```{r}
+long_imputed_dataset <- mutate(long_imputed_dataset, sexminority = case_when(
+  sexori == "Another sexual orientation" | sexori == "Asexual" | sexori == "Bisexual" | sexori == "Gay" | sexori == "Lesbian" | sexori == "Pansexual" | sexori == "Queer" | sexori == "Questioning/unsure" ~ 1,
+  sexori == "Straight/heterosexual" ~ 0
+))
+```
+
+```{r}
+long_imputed_dataset$genderaff_cat <- factor(long_imputed_dataset$genderaff_cat)
+levels(long_imputed_dataset$genderaff_cat) <- c("Did not seek care or not applicable", "Sought care and received it", "Sought care and did not receive it")
+```
+
+```{r}
+long_imputed_dataset <- mutate(long_imputed_dataset, gender_three = case_when(
+  GenderCat == "Trans man (FTM)" ~ 0,
+  GenderCat == "Trans woman (MTF)" ~ 1,
+  GenderCat == "Genderqueer AMAB" | GenderCat == "Genderqueer AFAB" ~ 2
+))
+
+long_imputed_dataset$gender_three <- factor(long_imputed_dataset$gender_three)
+
+levels(long_imputed_dataset$gender_three) <- c("Trans man (FTM)", "Trans woman (MTF)", "Nonbinary")
+```
+
+```{r}
+long_imputed_dataset <- mutate(long_imputed_dataset, race_three = case_when(
+  RaceCat == "White" ~ 0,
+  RaceCat == "Another Race" | RaceCat == "Asian" | RaceCat == "Black/African American" | RaceCat == "Latinx/Hispanic" ~ 1,
+  RaceCat == "Biracial/Multiracial" ~ 2
+))
+
+long_imputed_dataset$race_three <- factor(long_imputed_dataset$race_three)
+levels(long_imputed_dataset$race_three) <- c("White", "Monoracial", "Multiracial")
+```
+
+```{r}
+long_imputed_dataset <- mutate(long_imputed_dataset, PHQ4_two = case_when(
+  PHQ4_level == "Normal (0-2)" | PHQ4_level == "Mild (3-5)" ~ 0,
+  PHQ4_level == "Moderate (6-8)" | PHQ4_level == "Severe (9-12)" ~ 1
+))
+
+long_imputed_dataset$PHQ4_two <- factor(long_imputed_dataset$PHQ4_two)
+levels(long_imputed_dataset$PHQ4_two) <- c("Normal/Mild (0-5)", "Moderate/Severe (6-12)")
+```
+
+```{r}
+long_imputed_dataset$PHQ4_two_num[long_imputed_dataset$PHQ4_two == "Normal/Mild (0-5)"] <- 0
+long_imputed_dataset$PHQ4_two_num[long_imputed_dataset$PHQ4_two == "Moderate/Severe (6-12)"] <- 1
+```
+
+```{r}
+long_imputed_dataset$live_genderid_two[long_imputed_dataset$live_genderid == "Yes"] <- 1
+long_imputed_dataset$live_genderid_two[long_imputed_dataset$live_genderid == "No"] <- 0
+long_imputed_dataset$live_genderid_two[long_imputed_dataset$live_genderid == "Does not apply to me"] <- 0
+
+long_imputed_dataset$live_genderid_two <- factor(long_imputed_dataset$live_genderid_two)
+levels(long_imputed_dataset$live_genderid_two) <- c("No", "Yes")
+```
+
+```{r}
+table(long_imputed_dataset$SA_pastsix, long_imputed_dataset$hormone_current, dnn=c("SA Past 6 Mos", "Current Hormones"))
+```
+
+```{r}
+imputed_data_list <- split(long_imputed_dataset, f = long_imputed_dataset$.imp)
+```
+
+## GEE Modeling Across Datasets
+
+```{r}
+library(miceadds)
+
+imputed_mids <- datalist2mids(imputed_data_list)
+```
+
+## Lifetime SI - Bivariate Models
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_site <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ site, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_site_combined <- pool(SI_life_site)
+
+options(digits = 3)
+options(scipen = 5)
+
+summary(SI_life_site_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_age <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ age, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_age_combined <- pool(SI_life_age)
+
+options(digits = 4)
+
+summary(SI_life_age_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_gender <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ relevel(GenderCat, ref = "Trans man (FTM)"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_gender_combined <- pool(SI_life_gender)
+
+options(digits = 3)
+
+summary(SI_life_gender_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_gender2 <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ relevel(gender_three, ref = "Trans man (FTM)"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_gender2_combined <- pool(SI_life_gender2)
+
+options(digits = 4)
+
+summary(SI_life_gender2_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_race <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ relevel(RaceCat, ref = "White"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_race_combined <- pool(SI_life_race)
+
+options(digits = 3)
+
+summary(SI_life_race_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_race2 <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ relevel(race_three, ref = "White"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_race2_combined <- pool(SI_life_race2)
+
+options(digits = 4)
+
+summary(SI_life_race2_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_latinx <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ relevel(Latinx, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_latinx_combined <- pool(SI_life_latinx)
+
+options(digits = 4)
+
+summary(SI_life_latinx_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_sexminority <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ sexminority, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_sexminority_combined <- pool(SI_life_sexminority)
+
+options(digits = 3)
+
+summary(SI_life_sexminority_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_insure <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ relevel(insurance, ref = "Private health insurance"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_insure_combined <- pool(SI_life_insure)
+
+options(digits = 4)
+
+summary(SI_life_insure_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_lifehome <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ relevel(homelessness, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_lifehome_combined <- pool(SI_life_lifehome)
+
+options(digits = 4)
+
+summary(SI_life_lifehome_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_sixhome <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ relevel(homelessness_2, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_sixhome_combined <- pool(SI_life_sixhome)
+
+options(digits = 3)
+options(scipen = 999)
+
+summary(SI_life_sixhome_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_livegender <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ relevel(live_genderid, ref = "Yes"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_livegender_combined <- pool(SI_life_livegender)
+
+options(digits = 4)
+
+summary(SI_life_livegender_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_gendermark <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ gendermarker_change, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_gendermark_combined <- pool(SI_life_gendermark)
+
+options(digits = 3)
+
+summary(SI_life_gendermark_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_hormones <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ relevel(hormone_current, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_hormones_combined <- pool(SI_life_hormones)
+
+options(digits = 3)
+
+summary(SI_life_hormones_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_surgery <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ relevel(any_surgery, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_surgery_combined <- pool(SI_life_surgery)
+
+options(digits = 3)
+
+summary(SI_life_surgery_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_genderaff <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ relevel(genderaff_cat, ref = 'Did not seek care or not applicable'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_genderaff_combined <- pool(SI_life_genderaff)
+
+options(digits = 3)
+options(scipen = 5)
+
+summary(SI_life_genderaff_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_mood <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ relevel(mooddisorder, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_mood_combined <- pool(SI_life_mood)
+
+options(digits = 4)
+
+summary(SI_life_mood_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_phq <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ relevel(PHQ4_level, ref = 'Normal (0-2)'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_phq_combined <- pool(SI_life_phq)
+
+options(digits = 3)
+
+summary(SI_life_phq_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_phq2 <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ relevel(PHQ4_two, ref = 'Normal/Mild (0-5)'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_phq2_combined <- pool(SI_life_phq2)
+
+options(digits = 4)
+
+summary(SI_life_phq2_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_kess <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ relevel(KESS6_clinical, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_kess_combined <- pool(SI_life_kess)
+
+options(digits = 3)
+
+summary(SI_life_kess_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_ptsd <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ relevel(PTSD_clinical, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_ptsd_combined <- pool(SI_life_ptsd)
+
+options(digits = 4)
+
+summary(SI_life_ptsd_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_support <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ relevel(support_level, ref = 'High (61-84)'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_support_combined <- pool(SI_life_support)
+
+options(digits = 4)
+
+summary(SI_life_support_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_activism <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ relevel(trans_activism, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_activism_combined <- pool(SI_life_activism)
+
+options(digits = 4)
+
+summary(SI_life_activism_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_socialinperson <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ relevel(trans_social_inperson, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_socialinperson_combined <- pool(SI_life_socialinperson)
+
+options(digits = 3)
+
+summary(SI_life_socialinperson_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_socialn <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ relevel(socialization_in_person, ref = 'None'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_socialn_combined <- pool(SI_life_socialn)
+
+options(digits = 4)
+
+summary(SI_life_socialn_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_child <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ relevel(childhood_abuse, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_child_combined <- pool(SI_life_child)
+
+options(digits = 4)
+
+summary(SI_life_child_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_bully <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ relevel(bullying, ref = 'Never/rarely'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_bully_combined <- pool(SI_life_bully)
+
+options(digits = 4)
+
+summary(SI_life_bully_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_ipv <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ relevel(any_ipv, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_ipv_combined <- pool(SI_life_ipv)
+
+options(digits = 4)
+
+summary(SI_life_ipv_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_audit <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ relevel(AUDIT_clinical, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_audit_combined <- pool(SI_life_audit)
+
+options(digits = 3)
+
+summary(SI_life_audit_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_dast <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ relevel(DAST_clinical, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_dast_combined <- pool(SI_life_dast)
+
+options(digits = 4)
+
+summary(SI_life_dast_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_EDSq <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ relevel(EDS_quart, ref = 'Q1'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_EDSq_combined <- pool(SI_life_EDSq)
+
+options(digits = 4)
+
+summary(SI_life_EDSq_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_EDSn <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ EDS_reason_n, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_EDSn_combined <- pool(SI_life_EDSn)
+
+options(digits = 4)
+
+summary(SI_life_EDSn_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_covid <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ relevel(pre_covid, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_covid_combined <- pool(SI_life_covid)
+
+options(digits = 3)
+
+summary(SI_life_covid_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+
+## SI Past 6 Months - Bivariate
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_site <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ site, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_site_combined <- pool(SI_six_site)
+
+options(digits = 3)
+
+summary(SI_six_site_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_age <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ age, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_age_combined <- pool(SI_six_age)
+
+options(digits = 4)
+
+summary(SI_six_age_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_gender <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ relevel(GenderCat, ref = "Trans man (FTM)"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_gender_combined <- pool(SI_six_gender)
+
+options(digits = 3)
+
+summary(SI_six_gender_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_gender2 <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ relevel(gender_three, ref = "Trans man (FTM)"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_gender2_combined <- pool(SI_six_gender2)
+
+options(digits = 4)
+
+summary(SI_six_gender2_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_race <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ relevel(RaceCat, ref = "White"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_race_combined <- pool(SI_six_race)
+
+options(digits = 3)
+
+summary(SI_six_race_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_race2 <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ relevel(race_three, ref = "White"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_race2_combined <- pool(SI_six_race2)
+
+options(digits = 4)
+
+summary(SI_six_race2_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_latinx <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ relevel(Latinx, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_latinx_combined <- pool(SI_six_latinx)
+
+options(digits = 4)
+
+summary(SI_six_latinx_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_sexminority <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ sexminority, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_sexminority_combined <- pool(SI_six_sexminority)
+
+options(digits = 3)
+
+summary(SI_six_sexminority_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_insure <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ relevel(insurance, ref = "Private health insurance"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_insure_combined <- pool(SI_six_insure)
+
+options(digits = 4)
+
+summary(SI_six_insure_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_lifehome <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ relevel(homelessness, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_lifehome_combined <- pool(SI_six_lifehome)
+
+options(digits = 3)
+
+summary(SI_six_lifehome_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_sixhome <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ relevel(homelessness_2, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_sixhome_combined <- pool(SI_six_sixhome)
+
+options(digits = 4)
+
+summary(SI_six_sixhome_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_livegender <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ relevel(live_genderid, ref = "Yes"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_livegender_combined <- pool(SI_six_livegender)
+
+options(digits = 4)
+
+summary(SI_six_livegender_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_gendermark <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ gendermarker_change, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_gendermark_combined <- pool(SI_six_gendermark)
+
+options(digits = 3)
+
+summary(SI_six_gendermark_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_hormones <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ relevel(hormone_current, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_hormones_combined <- pool(SI_six_hormones)
+
+options(digits = 3)
+
+summary(SI_six_hormones_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_surgery <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ relevel(any_surgery, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_surgery_combined <- pool(SI_six_surgery)
+
+options(digits = 3)
+
+summary(SI_six_surgery_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_genderaff <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ relevel(genderaff_cat, ref = 'Did not seek care or not applicable'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_genderaff_combined <- pool(SI_six_genderaff)
+
+options(digits = 3)
+options(scipen = 5)
+
+summary(SI_six_genderaff_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_mood <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ relevel(mooddisorder, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_mood_combined <- pool(SI_six_mood)
+
+options(digits = 4)
+
+summary(SI_six_mood_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_phq <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ relevel(PHQ4_level, ref = 'Normal (0-2)'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_phq_combined <- pool(SI_six_phq)
+
+options(digits = 3)
+
+summary(SI_six_phq_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_phq2 <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ relevel(PHQ4_two, ref = 'Normal/Mild (0-5)'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_phq2_combined <- pool(SI_six_phq2)
+
+options(digits = 4)
+
+summary(SI_six_phq2_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_kess <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ relevel(KESS6_clinical, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_kess_combined <- pool(SI_six_kess)
+
+options(digits = 3)
+
+summary(SI_six_kess_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_ptsd <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ relevel(PTSD_clinical, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_ptsd_combined <- pool(SI_six_ptsd)
+
+options(digits = 4)
+
+summary(SI_six_ptsd_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_support <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ relevel(support_level, ref = 'High (61-84)'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_support_combined <- pool(SI_six_support)
+
+options(digits = 4)
+
+summary(SI_six_support_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_activism <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ relevel(trans_activism, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_activism_combined <- pool(SI_six_activism)
+
+options(digits = 4)
+
+summary(SI_six_activism_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_socialinperson <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ relevel(trans_social_inperson, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_socialinperson_combined <- pool(SI_six_socialinperson)
+
+options(digits = 3)
+
+summary(SI_six_socialinperson_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_socialn <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ relevel(socialization_in_person, ref = 'None'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_socialn_combined <- pool(SI_six_socialn)
+
+options(digits = 4)
+
+summary(SI_six_socialn_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_child <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ relevel(childhood_abuse, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_child_combined <- pool(SI_six_child)
+
+options(digits = 4)
+
+summary(SI_six_child_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_bully <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ relevel(bullying, ref = 'Never/rarely'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_bully_combined <- pool(SI_six_bully)
+
+options(digits = 4)
+
+summary(SI_six_bully_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_ipv <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ relevel(any_ipv, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_ipv_combined <- pool(SI_six_ipv)
+
+options(digits = 4)
+
+summary(SI_six_ipv_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_audit <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ relevel(AUDIT_clinical, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_audit_combined <- pool(SI_six_audit)
+
+options(digits = 3)
+
+summary(SI_six_audit_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_dast <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ relevel(DAST_clinical, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_dast_combined <- pool(SI_six_dast)
+
+options(digits = 4)
+
+summary(SI_six_dast_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_EDSq <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ relevel(EDS_quart, ref = 'Q1'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_EDSq_combined <- pool(SI_six_EDSq)
+
+options(digits = 4)
+
+summary(SI_six_EDSq_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_EDSn <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ EDS_reason_n, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_EDSn_combined <- pool(SI_six_EDSn)
+
+options(digits = 4)
+
+summary(SI_six_EDSn_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_covid <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ relevel(pre_covid, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_covid_combined <- pool(SI_six_covid)
+
+options(digits = 3)
+
+summary(SI_six_covid_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+
+## Lifetime SA - Bivariate Models
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_site <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ site, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_site_combined <- pool(SA_life_site)
+
+options(digits = 3)
+
+summary(SA_life_site_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_age <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ age, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_age_combined <- pool(SA_life_age)
+
+options(digits = 4)
+
+summary(SA_life_age_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_gender <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ relevel(GenderCat, ref = "Trans man (FTM)"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_gender_combined <- pool(SA_life_gender)
+
+options(digits = 3)
+
+summary(SA_life_gender_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_gender2 <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ relevel(gender_three, ref = "Trans man (FTM)"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_gender2_combined <- pool(SA_life_gender2)
+
+options(digits = 4)
+
+summary(SA_life_gender2_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_race <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ relevel(RaceCat, ref = "White"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_race_combined <- pool(SA_life_race)
+
+options(digits = 3)
+options(scipen = 5)
+
+summary(SA_life_race_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_race2 <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ relevel(race_three, ref = "White"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_race2_combined <- pool(SA_life_race2)
+
+options(digits = 4)
+
+summary(SA_life_race2_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_latinx <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ relevel(Latinx, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_latinx_combined <- pool(SA_life_latinx)
+
+options(digits = 4)
+
+summary(SA_life_latinx_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_sexminority <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ sexminority, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_sexminority_combined <- pool(SA_life_sexminority)
+
+options(digits = 3)
+
+summary(SA_life_sexminority_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_insure <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ relevel(insurance, ref = "Private health insurance"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_insure_combined <- pool(SA_life_insure)
+
+options(digits = 4)
+
+summary(SA_life_insure_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_lifehome <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ relevel(homelessness, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_lifehome_combined <- pool(SA_life_lifehome)
+
+options(digits = 4)
+
+summary(SA_life_lifehome_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_sixhome <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ relevel(homelessness_2, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_sixhome_combined <- pool(SA_life_sixhome)
+
+options(digits = 3)
+options(scipen = 999)
+
+summary(SA_life_sixhome_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_livegender <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ relevel(live_genderid, ref = "Yes"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_livegender_combined <- pool(SA_life_livegender)
+
+options(digits = 4)
+
+summary(SA_life_livegender_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_gendermark <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ gendermarker_change, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_gendermark_combined <- pool(SA_life_gendermark)
+
+options(digits = 3)
+
+summary(SA_life_gendermark_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_hormones <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ relevel(hormone_current, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_hormones_combined <- pool(SA_life_hormones)
+
+options(digits = 3)
+
+summary(SA_life_hormones_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_surgery <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ relevel(any_surgery, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_surgery_combined <- pool(SA_life_surgery)
+
+options(digits = 3)
+
+summary(SA_life_surgery_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_genderaff <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ relevel(genderaff_cat, ref = 'Did not seek care or not applicable'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_genderaff_combined <- pool(SA_life_genderaff)
+
+options(digits = 3)
+options(scipen = 5)
+
+summary(SA_life_genderaff_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_mood <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ relevel(mooddisorder, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_mood_combined <- pool(SA_life_mood)
+
+options(digits = 4)
+
+summary(SA_life_mood_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_phq <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ relevel(PHQ4_level, ref = 'Normal (0-2)'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_phq_combined <- pool(SA_life_phq)
+
+options(digits = 3)
+
+summary(SA_life_phq_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_phq2 <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ relevel(PHQ4_two, ref = 'Normal/Mild (0-5)'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_phq2_combined <- pool(SA_life_phq2)
+
+options(digits = 4)
+
+summary(SA_life_phq2_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_kess <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ relevel(KESS6_clinical, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_kess_combined <- pool(SA_life_kess)
+
+options(digits = 3)
+
+summary(SA_life_kess_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_ptsd <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ relevel(PTSD_clinical, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_ptsd_combined <- pool(SA_life_ptsd)
+
+options(digits = 4)
+
+summary(SA_life_ptsd_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_support <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ relevel(support_level, ref = 'High (61-84)'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_support_combined <- pool(SA_life_support)
+
+options(digits = 3)
+
+summary(SA_life_support_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_activism <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ relevel(trans_activism, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_activism_combined <- pool(SA_life_activism)
+
+options(digits = 3)
+
+summary(SA_life_activism_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_socialinperson <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ relevel(trans_social_inperson, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_socialinperson_combined <- pool(SA_life_socialinperson)
+
+options(digits = 3)
+
+summary(SA_life_socialinperson_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_socialn <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ relevel(socialization_in_person, ref = 'None'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_socialn_combined <- pool(SA_life_socialn)
+
+options(digits = 3)
+
+summary(SA_life_socialn_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_child <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ relevel(childhood_abuse, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_child_combined <- pool(SA_life_child)
+
+options(digits = 4)
+
+summary(SA_life_child_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_bully <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ relevel(bullying, ref = 'Never/rarely'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_bully_combined <- pool(SA_life_bully)
+
+options(digits = 4)
+
+summary(SA_life_bully_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_ipv <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ relevel(any_ipv, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_ipv_combined <- pool(SA_life_ipv)
+
+options(digits = 4)
+
+summary(SA_life_ipv_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_audit <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ relevel(AUDIT_clinical, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_audit_combined <- pool(SA_life_audit)
+
+options(digits = 3)
+
+summary(SA_life_audit_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_dast <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ relevel(DAST_clinical, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_dast_combined <- pool(SA_life_dast)
+
+options(digits = 4)
+
+summary(SA_life_dast_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_EDSq <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ relevel(EDS_quart, ref = 'Q1'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_EDSq_combined <- pool(SA_life_EDSq)
+
+options(digits = 4)
+
+summary(SA_life_EDSq_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_EDSn <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ EDS_reason_n, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_EDSn_combined <- pool(SA_life_EDSn)
+
+options(digits = 4)
+
+summary(SA_life_EDSn_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_covid <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ relevel(pre_covid, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_covid_combined <- pool(SA_life_covid)
+
+options(digits = 3)
+
+summary(SA_life_covid_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+
+## SA Past 6 Months - Bivariate
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_six_site <- with(imputed_mids, exp <- geeglm(SA_pastsix_num ~ site, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_six_site_combined <- pool(SA_six_site)
+
+options(digits = 3)
+
+summary(SA_six_site_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_six_age <- with(imputed_mids, exp <- geeglm(SA_pastsix_num ~ age, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_six_age_combined <- pool(SA_six_age)
+
+options(digits = 4)
+
+summary(SA_six_age_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_six_gender <- with(imputed_mids, exp <- geeglm(SA_pastsix_num ~ relevel(gender_three, ref = "Trans man (FTM)"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_six_gender_combined <- pool(SA_six_gender)
+
+options(digits = 4)
+
+summary(SA_six_gender_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_six_race <- with(imputed_mids, exp <- geeglm(SA_pastsix_num ~ relevel(race_three, ref = "White"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_six_race_combined <- pool(SA_six_race)
+
+options(digits = 4)
+
+summary(SA_six_race_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_six_latinx <- with(imputed_mids, exp <- geeglm(SA_pastsix_num ~ relevel(Latinx, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_six_latinx_combined <- pool(SA_six_latinx)
+
+options(digits = 4)
+
+summary(SA_six_latinx_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_six_sexminority <- with(imputed_mids, exp <- geeglm(SA_pastsix_num ~ sexminority, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_six_sexminority_combined <- pool(SA_six_sexminority)
+
+options(digits = 3)
+
+summary(SA_six_sexminority_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_six_insure <- with(imputed_mids, exp <- geeglm(SA_pastsix_num ~ relevel(insurance, ref = "Private health insurance"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_six_insure_combined <- pool(SA_six_insure)
+
+options(digits = 4)
+
+summary(SA_six_insure_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_six_lifehome <- with(imputed_mids, exp <- geeglm(SA_pastsix_num ~ relevel(homelessness, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_six_lifehome_combined <- pool(SA_six_lifehome)
+
+options(digits = 3)
+
+summary(SA_six_lifehome_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_six_sixhome <- with(imputed_mids, exp <- geeglm(SA_pastsix_num ~ relevel(homelessness_2, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_six_sixhome_combined <- pool(SA_six_sixhome)
+
+options(digits = 4)
+
+summary(SA_six_sixhome_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_six_livegender <- with(imputed_mids, exp <- geeglm(SA_pastsix_num ~ relevel(live_genderid, ref = "Yes"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_six_livegender_combined <- pool(SA_six_livegender)
+
+options(digits = 3)
+options(scipen = 5)
+
+#Model does not converge for the level of 'does not apply to me'
+
+summary(SA_six_livegender_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_six_livegender2 <- with(imputed_mids, exp <- geeglm(SA_pastsix_num ~ relevel(live_genderid_two, ref = "Yes"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_six_livegender2_combined <- pool(SA_six_livegender2)
+
+options(digits = 3)
+
+summary(SA_six_livegender2_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_six_gendermark <- with(imputed_mids, exp <- geeglm(SA_pastsix_num ~ gendermarker_change, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_six_gendermark_combined <- pool(SA_six_gendermark)
+
+options(digits = 3)
+
+summary(SA_six_gendermark_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_six_hormones <- with(imputed_mids, exp <- geeglm(SA_pastsix_num ~ relevel(hormone_current, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_six_hormones_combined <- pool(SA_six_hormones)
+
+options(digits = 3)
+
+summary(SA_six_hormones_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_six_surgery <- with(imputed_mids, exp <- geeglm(SA_pastsix_num ~ relevel(any_surgery, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_six_surgery_combined <- pool(SA_six_surgery)
+
+options(digits = 3)
+
+summary(SA_six_surgery_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_six_genderaff <- with(imputed_mids, exp <- geeglm(SA_pastsix_num ~ relevel(genderaff_cat, ref = 'Did not seek care or not applicable'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_six_genderaff_combined <- pool(SA_six_genderaff)
+
+options(digits = 3)
+options(scipen = 5)
+
+summary(SA_six_genderaff_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_six_mood <- with(imputed_mids, exp <- geeglm(SA_pastsix_num ~ relevel(mooddisorder, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_six_mood_combined <- pool(SA_six_mood)
+
+options(digits = 3)
+
+summary(SA_six_mood_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_six_phq <- with(imputed_mids, exp <- geeglm(SA_pastsix_num ~ relevel(PHQ4_two, ref = 'Normal/Mild (0-5)'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_six_phq_combined <- pool(SA_six_phq)
+
+options(digits = 4)
+
+summary(SA_six_phq_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_six_kess <- with(imputed_mids, exp <- geeglm(SA_pastsix_num ~ relevel(KESS6_clinical, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_six_kess_combined <- pool(SA_six_kess)
+
+options(digits = 3)
+
+summary(SA_six_kess_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_six_ptsd <- with(imputed_mids, exp <- geeglm(SA_pastsix_num ~ relevel(PTSD_clinical, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_six_ptsd_combined <- pool(SA_six_ptsd)
+
+options(digits = 4)
+
+summary(SA_six_ptsd_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_six_support <- with(imputed_mids, exp <- geeglm(SA_pastsix_num ~ relevel(support_level, ref = 'High (61-84)'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_six_support_combined <- pool(SA_six_support)
+
+options(digits = 4)
+
+summary(SA_six_support_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_six_activism <- with(imputed_mids, exp <- geeglm(SA_pastsix_num ~ relevel(trans_activism, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_six_activism_combined <- pool(SA_six_activism)
+
+options(digits = 3)
+
+summary(SA_six_activism_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_six_socialinperson <- with(imputed_mids, exp <- geeglm(SA_pastsix_num ~ relevel(trans_social_inperson, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_six_socialinperson_combined <- pool(SA_six_socialinperson)
+
+options(digits = 3)
+
+summary(SA_six_socialinperson_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_six_socialn <- with(imputed_mids, exp <- geeglm(SA_pastsix_num ~ relevel(socialization_in_person, ref = 'None'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_six_socialn_combined <- pool(SA_six_socialn)
+
+options(digits = 3)
+
+summary(SA_six_socialn_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_six_child <- with(imputed_mids, exp <- geeglm(SA_pastsix_num ~ relevel(childhood_abuse, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_six_child_combined <- pool(SA_six_child)
+
+options(digits = 4)
+
+summary(SA_six_child_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_six_bully <- with(imputed_mids, exp <- geeglm(SA_pastsix_num ~ relevel(bullying, ref = 'Never/rarely'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+#Model did not properly converge
+
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_six_bully_combined <- pool(SA_six_bully)
+
+options(digits = 3)
+
+summary(SA_six_bully_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_six_ipv <- with(imputed_mids, exp <- geeglm(SA_pastsix_num ~ relevel(any_ipv, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_six_ipv_combined <- pool(SA_six_ipv)
+
+options(digits = 4)
+
+summary(SA_six_ipv_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_six_audit <- with(imputed_mids, exp <- geeglm(SA_pastsix_num ~ relevel(AUDIT_clinical, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_six_audit_combined <- pool(SA_six_audit)
+
+options(digits = 3)
+
+summary(SA_six_audit_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_six_dast <- with(imputed_mids, exp <- geeglm(SA_pastsix_num ~ relevel(DAST_clinical, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_six_dast_combined <- pool(SA_six_dast)
+
+options(digits = 4)
+
+summary(SA_six_dast_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_six_EDSq <- with(imputed_mids, exp <- geeglm(SA_pastsix_num ~ relevel(EDS_quart, ref = 'Q1'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_six_EDSq_combined <- pool(SA_six_EDSq)
+
+options(digits = 4)
+
+summary(SA_six_EDSq_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_six_EDSn <- with(imputed_mids, exp <- geeglm(SA_pastsix_num ~ EDS_reason_n, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_six_EDSn_combined <- pool(SA_six_EDSn)
+
+options(digits = 4)
+
+summary(SA_six_EDSn_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_six_covid <- with(imputed_mids, exp <- geeglm(SA_pastsix_num ~ relevel(pre_covid, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_six_covid_combined <- pool(SA_six_covid)
+
+options(digits = 3)
+
+summary(SA_six_covid_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+
+## Lifetime NSSI - Bivariate Models
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_site <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ site, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_site_combined <- pool(NSSI_life_site)
+
+options(digits = 3)
+
+summary(NSSI_life_site_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_age <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ age, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_age_combined <- pool(NSSI_life_age)
+
+options(digits = 4)
+
+summary(NSSI_life_age_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_gender <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ relevel(GenderCat, ref = "Trans man (FTM)"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_gender_combined <- pool(NSSI_life_gender)
+
+options(digits = 3)
+
+summary(NSSI_life_gender_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_gender2 <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ relevel(gender_three, ref = "Trans man (FTM)"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_gender2_combined <- pool(NSSI_life_gender2)
+
+options(digits = 4)
+
+summary(NSSI_life_gender2_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_race <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ relevel(RaceCat, ref = "White"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_race_combined <- pool(NSSI_life_race)
+
+options(digits = 3)
+
+summary(NSSI_life_race_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_race2 <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ relevel(race_three, ref = "White"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_race2_combined <- pool(NSSI_life_race2)
+
+options(digits = 4)
+
+summary(NSSI_life_race2_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_latinx <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ relevel(Latinx, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_latinx_combined <- pool(NSSI_life_latinx)
+
+options(digits = 4)
+
+summary(NSSI_life_latinx_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_sexminority <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ sexminority, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_sexminority_combined <- pool(NSSI_life_sexminority)
+
+options(digits = 4)
+
+summary(NSSI_life_sexminority_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_insure <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ relevel(insurance, ref = "Private health insurance"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_insure_combined <- pool(NSSI_life_insure)
+
+options(digits = 4)
+
+summary(NSSI_life_insure_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_lifehome <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ relevel(homelessness, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_lifehome_combined <- pool(NSSI_life_lifehome)
+
+options(digits = 4)
+
+summary(NSSI_life_lifehome_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_sixhome <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ relevel(homelessness_2, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_sixhome_combined <- pool(NSSI_life_sixhome)
+
+options(digits = 3)
+options(scipen = 999)
+
+summary(NSSI_life_sixhome_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_livegender <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ relevel(live_genderid, ref = "Yes"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_livegender_combined <- pool(NSSI_life_livegender)
+
+options(digits = 4)
+
+summary(NSSI_life_livegender_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_gendermark <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ gendermarker_change, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_gendermark_combined <- pool(NSSI_life_gendermark)
+
+options(digits = 4)
+
+summary(NSSI_life_gendermark_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_hormones <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ relevel(hormone_current, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_hormones_combined <- pool(NSSI_life_hormones)
+
+options(digits = 3)
+
+summary(NSSI_life_hormones_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_surgery <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ relevel(any_surgery, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_surgery_combined <- pool(NSSI_life_surgery)
+
+options(digits = 4)
+
+summary(NSSI_life_surgery_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_genderaff <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ relevel(genderaff_cat, ref = 'Did not seek care or not applicable'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_genderaff_combined <- pool(NSSI_life_genderaff)
+
+options(digits = 3)
+options(scipen = 5)
+
+summary(NSSI_life_genderaff_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_mood <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ relevel(mooddisorder, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_mood_combined <- pool(NSSI_life_mood)
+
+options(digits = 4)
+
+summary(NSSI_life_mood_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_phq <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ relevel(PHQ4_level, ref = 'Normal (0-2)'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_phq_combined <- pool(NSSI_life_phq)
+
+options(digits = 3)
+
+summary(NSSI_life_phq_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_phq2 <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ relevel(PHQ4_two, ref = 'Normal/Mild (0-5)'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_phq2_combined <- pool(NSSI_life_phq2)
+
+options(digits = 4)
+
+summary(NSSI_life_phq2_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_kess <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ relevel(KESS6_clinical, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_kess_combined <- pool(NSSI_life_kess)
+
+options(digits = 3)
+
+summary(NSSI_life_kess_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_ptsd <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ relevel(PTSD_clinical, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_ptsd_combined <- pool(NSSI_life_ptsd)
+
+options(digits = 4)
+
+summary(NSSI_life_ptsd_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_support <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ relevel(support_level, ref = 'High (61-84)'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_support_combined <- pool(NSSI_life_support)
+
+options(digits = 3)
+
+summary(NSSI_life_support_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_activism <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ relevel(trans_activism, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_activism_combined <- pool(NSSI_life_activism)
+
+options(digits = 4)
+
+summary(NSSI_life_activism_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_socialinperson <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ relevel(trans_social_inperson, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_socialinperson_combined <- pool(NSSI_life_socialinperson)
+
+options(digits = 3)
+
+summary(NSSI_life_socialinperson_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_socialn <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ relevel(socialization_in_person, ref = 'None'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_socialn_combined <- pool(NSSI_life_socialn)
+
+options(digits = 4)
+
+summary(NSSI_life_socialn_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_child <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ relevel(childhood_abuse, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_child_combined <- pool(NSSI_life_child)
+
+options(digits = 4)
+
+summary(NSSI_life_child_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_bully <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ relevel(bullying, ref = 'Never/rarely'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_bully_combined <- pool(NSSI_life_bully)
+
+options(digits = 4)
+
+summary(NSSI_life_bully_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_ipv <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ relevel(any_ipv, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_ipv_combined <- pool(NSSI_life_ipv)
+
+options(digits = 4)
+
+summary(NSSI_life_ipv_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_audit <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ relevel(AUDIT_clinical, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_audit_combined <- pool(NSSI_life_audit)
+
+options(digits = 4)
+
+summary(NSSI_life_audit_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_dast <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ relevel(DAST_clinical, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_dast_combined <- pool(NSSI_life_dast)
+
+options(digits = 4)
+
+summary(NSSI_life_dast_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_EDSq <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ relevel(EDS_quart, ref = 'Q1'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_EDSq_combined <- pool(NSSI_life_EDSq)
+
+options(digits = 4)
+
+summary(NSSI_life_EDSq_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_EDSn <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ EDS_reason_n, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_EDSn_combined <- pool(NSSI_life_EDSn)
+
+options(digits = 3)
+
+summary(NSSI_life_EDSn_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_covid <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ relevel(pre_covid, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_covid_combined <- pool(NSSI_life_covid)
+
+options(digits = 3)
+
+summary(NSSI_life_covid_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+
+## NSSI Past 6 Months - Bivariate
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_site <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ site, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_site_combined <- pool(NSSI_six_site)
+
+options(digits = 3)
+
+summary(NSSI_six_site_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_age <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ age, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_age_combined <- pool(NSSI_six_age)
+
+options(digits = 4)
+
+summary(NSSI_six_age_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_gender <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ relevel(GenderCat, ref = "Trans man (FTM)"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_gender_combined <- pool(NSSI_six_gender)
+
+options(digits = 3)
+
+summary(NSSI_six_gender_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_gender2 <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ relevel(gender_three, ref = "Trans man (FTM)"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_gender2_combined <- pool(NSSI_six_gender2)
+
+options(digits = 4)
+
+summary(NSSI_six_gender2_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_race <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ relevel(RaceCat, ref = "White"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_race_combined <- pool(NSSI_six_race)
+
+options(digits = 3)
+
+summary(NSSI_six_race_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_race2 <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ relevel(race_three, ref = "White"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_race2_combined <- pool(NSSI_six_race2)
+
+options(digits = 4)
+
+summary(NSSI_six_race2_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_latinx <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ relevel(Latinx, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_latinx_combined <- pool(NSSI_six_latinx)
+
+options(digits = 4)
+
+summary(NSSI_six_latinx_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_sexminority <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ sexminority, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_sexminority_combined <- pool(NSSI_six_sexminority)
+
+options(digits = 3)
+
+summary(NSSI_six_sexminority_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_insure <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ relevel(insurance, ref = "Private health insurance"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_insure_combined <- pool(NSSI_six_insure)
+
+options(digits = 3)
+options(scipen = 5 )
+
+summary(NSSI_six_insure_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_lifehome <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ relevel(homelessness, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_lifehome_combined <- pool(NSSI_six_lifehome)
+
+options(digits = 3)
+
+summary(NSSI_six_lifehome_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_sixhome <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ relevel(homelessness_2, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_sixhome_combined <- pool(NSSI_six_sixhome)
+
+options(digits = 4)
+
+summary(NSSI_six_sixhome_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_livegender <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ relevel(live_genderid, ref = "Yes"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_livegender_combined <- pool(NSSI_six_livegender)
+
+options(digits = 3)
+options(scipen = 5)
+
+summary(NSSI_six_livegender_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_gendermark <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ gendermarker_change, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_gendermark_combined <- pool(NSSI_six_gendermark)
+
+options(digits = 3)
+
+summary(NSSI_six_gendermark_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_hormones <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ relevel(hormone_current, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_hormones_combined <- pool(NSSI_six_hormones)
+
+options(digits = 3)
+
+summary(NSSI_six_hormones_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_surgery <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ relevel(any_surgery, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_surgery_combined <- pool(NSSI_six_surgery)
+
+options(digits = 3)
+
+summary(NSSI_six_surgery_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_genderaff <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ relevel(genderaff_cat, ref = 'Did not seek care or not applicable'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_genderaff_combined <- pool(NSSI_six_genderaff)
+
+options(digits = 3)
+options(scipen = 5)
+
+summary(NSSI_six_genderaff_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_mood <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ relevel(mooddisorder, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_mood_combined <- pool(NSSI_six_mood)
+
+options(digits = 4)
+
+summary(NSSI_six_mood_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_phq <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ relevel(PHQ4_level, ref = 'Normal (0-2)'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_phq_combined <- pool(NSSI_six_phq)
+
+options(digits = 3)
+
+summary(NSSI_six_phq_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_phq2 <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ relevel(PHQ4_two, ref = 'Normal/Mild (0-5)'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_phq2_combined <- pool(NSSI_six_phq2)
+
+options(digits = 4)
+
+summary(NSSI_six_phq2_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_kess <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ relevel(KESS6_clinical, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_kess_combined <- pool(NSSI_six_kess)
+
+options(digits = 3)
+
+summary(NSSI_six_kess_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_ptsd <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ relevel(PTSD_clinical, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_ptsd_combined <- pool(NSSI_six_ptsd)
+
+options(digits = 4)
+
+summary(NSSI_six_ptsd_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_support <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ relevel(support_level, ref = 'High (61-84)'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_support_combined <- pool(NSSI_six_support)
+
+options(digits = 4)
+
+summary(NSSI_six_support_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_activism <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ relevel(trans_activism, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_activism_combined <- pool(NSSI_six_activism)
+
+options(digits = 3)
+
+summary(NSSI_six_activism_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_socialinperson <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ relevel(trans_social_inperson, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_socialinperson_combined <- pool(NSSI_six_socialinperson)
+
+options(digits = 3)
+
+summary(NSSI_six_socialinperson_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_socialn <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ relevel(socialization_in_person, ref = 'None'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_socialn_combined <- pool(NSSI_six_socialn)
+
+options(digits = 4)
+
+summary(NSSI_six_socialn_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_child <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ relevel(childhood_abuse, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_child_combined <- pool(NSSI_six_child)
+
+options(digits = 4)
+
+summary(NSSI_six_child_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_bully <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ relevel(bullying, ref = 'Never/rarely'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_bully_combined <- pool(NSSI_six_bully)
+
+options(digits = 4)
+
+summary(NSSI_six_bully_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_ipv <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ relevel(any_ipv, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_ipv_combined <- pool(NSSI_six_ipv)
+
+options(digits = 4)
+
+summary(NSSI_six_ipv_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_audit <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ relevel(AUDIT_clinical, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_audit_combined <- pool(NSSI_six_audit)
+
+options(digits = 3)
+
+summary(NSSI_six_audit_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_dast <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ relevel(DAST_clinical, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_dast_combined <- pool(NSSI_six_dast)
+
+options(digits = 4)
+
+summary(NSSI_six_dast_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_EDSq <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ relevel(EDS_quart, ref = 'Q1'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_EDSq_combined <- pool(NSSI_six_EDSq)
+
+options(digits = 4)
+
+summary(NSSI_six_EDSq_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_EDSn <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ EDS_reason_n, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_EDSn_combined <- pool(NSSI_six_EDSn)
+
+options(digits = 4)
+
+summary(NSSI_six_EDSn_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_covid <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ relevel(pre_covid, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_covid_combined <- pool(NSSI_six_covid)
+
+options(digits = 3)
+
+summary(NSSI_six_covid_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+
+## Clinical PHQ-4 Score
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ4_six_site <- with(imputed_mids, exp <- geeglm(PHQ4_two_num ~ site, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+PHQ4_six_site_combined <- pool(PHQ4_six_site)
+
+options(digits = 3)
+
+summary(PHQ4_six_site_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ4_six_age <- with(imputed_mids, exp <- geeglm(PHQ4_two_num ~ age, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+PHQ4_six_age_combined <- pool(PHQ4_six_age)
+
+options(digits = 3)
+
+summary(PHQ4_six_age_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ4_six_gender <- with(imputed_mids, exp <- geeglm(PHQ4_two_num ~ relevel(GenderCat, ref = "Trans man (FTM)"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+PHQ4_six_gender_combined <- pool(PHQ4_six_gender)
+
+options(digits = 3)
+
+summary(PHQ4_six_gender_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ4_six_gender2 <- with(imputed_mids, exp <- geeglm(PHQ4_two_num ~ relevel(gender_three, ref = "Trans man (FTM)"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+PHQ4_six_gender2_combined <- pool(PHQ4_six_gender2)
+
+options(digits = 3)
+
+summary(PHQ4_six_gender2_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ4_six_race <- with(imputed_mids, exp <- geeglm(PHQ4_two_num ~ relevel(RaceCat, ref = "White"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+PHQ4_six_race_combined <- pool(PHQ4_six_race)
+
+options(digits = 3)
+
+summary(PHQ4_six_race_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ4_six_race2 <- with(imputed_mids, exp <- geeglm(PHQ4_two_num ~ relevel(race_three, ref = "White"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+PHQ4_six_race2_combined <- pool(PHQ4_six_race2)
+
+options(digits = 3)
+
+summary(PHQ4_six_race2_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ4_six_latinx <- with(imputed_mids, exp <- geeglm(PHQ4_two_num ~ relevel(Latinx, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+PHQ4_six_latinx_combined <- pool(PHQ4_six_latinx)
+
+options(digits = 3)
+
+summary(PHQ4_six_latinx_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ4_six_sexminority <- with(imputed_mids, exp <- geeglm(PHQ4_two_num ~ sexminority, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+PHQ4_six_sexminority_combined <- pool(PHQ4_six_sexminority)
+
+options(digits = 3)
+
+summary(PHQ4_six_sexminority_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ4_six_insure <- with(imputed_mids, exp <- geeglm(PHQ4_two_num ~ relevel(insurance, ref = "Private health insurance"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+PHQ4_six_insure_combined <- pool(PHQ4_six_insure)
+
+options(digits = 3)
+options(scipen = 5)
+
+summary(PHQ4_six_insure_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ4_six_lifehome <- with(imputed_mids, exp <- geeglm(PHQ4_two_num ~ relevel(homelessness, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+PHQ4_six_lifehome_combined <- pool(PHQ4_six_lifehome)
+
+options(digits = 3)
+
+summary(PHQ4_six_lifehome_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ4_six_sixhome <- with(imputed_mids, exp <- geeglm(PHQ4_two_num ~ relevel(homelessness_2, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+PHQ4_six_sixhome_combined <- pool(PHQ4_six_sixhome)
+
+options(digits = 3)
+options(scipen = 5)
+
+summary(PHQ4_six_sixhome_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ4_six_livegender <- with(imputed_mids, exp <- geeglm(PHQ4_two_num ~ relevel(live_genderid, ref = "Yes"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+PHQ4_six_livegender_combined <- pool(PHQ4_six_livegender)
+
+options(digits = 3)
+
+summary(PHQ4_six_livegender_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ4_six_gendermark <- with(imputed_mids, exp <- geeglm(PHQ4_two_num ~ gendermarker_change, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+PHQ4_six_gendermark_combined <- pool(PHQ4_six_gendermark)
+
+options(digits = 3)
+
+summary(PHQ4_six_gendermark_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ4_six_hormones <- with(imputed_mids, exp <- geeglm(PHQ4_two_num ~ relevel(hormone_current, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+PHQ4_six_hormones_combined <- pool(PHQ4_six_hormones)
+
+options(digits = 3)
+
+summary(PHQ4_six_hormones_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ4_six_surgery <- with(imputed_mids, exp <- geeglm(PHQ4_two_num ~ relevel(any_surgery, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+PHQ4_six_surgery_combined <- pool(PHQ4_six_surgery)
+
+options(digits = 3)
+
+summary(PHQ4_six_surgery_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ4_six_genderaff <- with(imputed_mids, exp <- geeglm(PHQ4_two_num ~ relevel(genderaff_cat, ref = 'Did not seek care or not applicable'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+PHQ4_six_genderaff_combined <- pool(PHQ4_six_genderaff)
+
+options(digits = 3)
+options(scipen = 5)
+
+summary(PHQ4_six_genderaff_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ4_six_mood <- with(imputed_mids, exp <- geeglm(PHQ4_two_num ~ relevel(mooddisorder, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+PHQ4_six_mood_combined <- pool(PHQ4_six_mood)
+
+options(digits = 3)
+
+summary(PHQ4_six_mood_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ4_six_kess <- with(imputed_mids, exp <- geeglm(PHQ4_two_num ~ relevel(KESS6_clinical, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+PHQ4_six_kess_combined <- pool(PHQ4_six_kess)
+
+options(digits = 3)
+
+summary(PHQ4_six_kess_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ4_six_ptsd <- with(imputed_mids, exp <- geeglm(PHQ4_two_num ~ relevel(PTSD_clinical, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+PHQ4_six_ptsd_combined <- pool(PHQ4_six_ptsd)
+
+options(digits = 3)
+
+summary(PHQ4_six_ptsd_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ4_six_support <- with(imputed_mids, exp <- geeglm(PHQ4_two_num ~ relevel(support_level, ref = 'High (61-84)'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+PHQ4_six_support_combined <- pool(PHQ4_six_support)
+
+options(digits = 3)
+options(scipen = 5)
+
+summary(PHQ4_six_support_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ4_six_activism <- with(imputed_mids, exp <- geeglm(PHQ4_two_num ~ relevel(trans_activism, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+PHQ4_six_activism_combined <- pool(PHQ4_six_activism)
+
+options(digits = 3)
+
+summary(PHQ4_six_activism_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ4_six_socialinperson <- with(imputed_mids, exp <- geeglm(PHQ4_two_num ~ relevel(trans_social_inperson, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+PHQ4_six_socialinperson_combined <- pool(PHQ4_six_socialinperson)
+
+options(digits = 3)
+
+summary(PHQ4_six_socialinperson_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ4_six_socialn <- with(imputed_mids, exp <- geeglm(PHQ4_two_num ~ relevel(socialization_in_person, ref = 'None'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+PHQ4_six_socialn_combined <- pool(PHQ4_six_socialn)
+
+options(digits = 3)
+
+summary(PHQ4_six_socialn_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ4_six_child <- with(imputed_mids, exp <- geeglm(PHQ4_two_num ~ relevel(childhood_abuse, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+PHQ4_six_child_combined <- pool(PHQ4_six_child)
+
+options(digits = 3)
+
+summary(PHQ4_six_child_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ4_six_bully <- with(imputed_mids, exp <- geeglm(PHQ4_two_num ~ relevel(bullying, ref = 'Never/rarely'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+PHQ4_six_bully_combined <- pool(PHQ4_six_bully)
+
+options(digits = 3)
+
+summary(PHQ4_six_bully_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ4_six_ipv <- with(imputed_mids, exp <- geeglm(PHQ4_two_num ~ relevel(any_ipv, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+PHQ4_six_ipv_combined <- pool(PHQ4_six_ipv)
+
+options(digits = 3)
+
+summary(PHQ4_six_ipv_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ4_six_audit <- with(imputed_mids, exp <- geeglm(PHQ4_two_num ~ relevel(AUDIT_clinical, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+PHQ4_six_audit_combined <- pool(PHQ4_six_audit)
+
+options(digits = 3)
+
+summary(PHQ4_six_audit_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ4_six_dast <- with(imputed_mids, exp <- geeglm(PHQ4_two_num ~ relevel(DAST_clinical, ref = 'No'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+PHQ4_six_dast_combined <- pool(PHQ4_six_dast)
+
+options(digits = 3)
+
+summary(PHQ4_six_dast_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ4_six_EDSq <- with(imputed_mids, exp <- geeglm(PHQ4_two_num ~ relevel(EDS_quart, ref = 'Q1'), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+PHQ4_six_EDSq_combined <- pool(PHQ4_six_EDSq)
+
+options(digits = 3)
+
+summary(PHQ4_six_EDSq_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ4_six_EDSn <- with(imputed_mids, exp <- geeglm(PHQ4_two_num ~ EDS_reason_n, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+PHQ4_six_EDSn_combined <- pool(PHQ4_six_EDSn)
+
+options(digits = 3)
+
+summary(PHQ4_six_EDSn_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ4_six_covid <- with(imputed_mids, exp <- geeglm(PHQ4_two_num ~ relevel(pre_covid, ref = "No"), family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+PHQ4_six_covid_combined <- pool(PHQ4_six_covid)
+
+options(digits = 3)
+
+summary(PHQ4_six_covid_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+
+## Multivariable Models
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_life_multi <- with(imputed_mids, exp <- geeglm(SI_lifetime_num ~ age + relevel(gender_three, ref = "Trans man (FTM)") + relevel(race_three, ref = "White")
++ relevel(Latinx, ref = "No")
++ relevel(insurance, ref = "Private health insurance")
++ relevel(homelessness, ref = "No")
++ relevel(live_genderid, ref = "Yes")
++ relevel(mooddisorder, ref = 'No')
++ relevel(PHQ4_two, ref = 'Normal/Mild (0-5)')
++ relevel(PTSD_clinical, ref = 'No')
++ relevel(trans_activism, ref = 'No')
++ relevel(socialization_in_person, ref = 'None')
++ relevel(childhood_abuse, ref = 'No')
++ relevel(bullying, ref = 'Never/rarely')
++ relevel(any_ipv, ref = 'No')
++ relevel(DAST_clinical, ref = 'No')
++ relevel(EDS_quart, ref = 'Q1')
++ EDS_reason_n, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_life_multi_combined <- pool(SI_life_multi)
+
+options(digits = 5)
+
+summary(SI_life_multi_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SI_six_multi <- with(imputed_mids, exp <- geeglm(SI_pastsix_num ~ age
++ relevel(gender_three, ref = "Trans man (FTM)")
++ relevel(race_three, ref = "White")
++ relevel(Latinx, ref = "No")
++ relevel(insurance, ref = "Private health insurance")
++ relevel(homelessness_2, ref = "No")
++ relevel(live_genderid, ref = "Yes")
++ relevel(mooddisorder, ref = 'No')
++ relevel(PHQ4_two, ref = 'Normal/Mild (0-5)')
++ relevel(PTSD_clinical, ref = 'No')
++ relevel(support_level, ref = 'High (61-84)')
++ relevel(childhood_abuse, ref = 'No')
++ relevel(bullying, ref = 'Never/rarely')
++ relevel(any_ipv, ref = 'No')
++ relevel(DAST_clinical, ref = 'No')
++ relevel(EDS_quart, ref = 'Q1')
++ EDS_reason_n, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SI_six_multi_combined <- pool(SI_six_multi)
+
+options(scipen = 4)
+
+summary(SI_six_multi_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+SA_life_multi <- with(imputed_mids, exp <- geeglm(SA_lifetime_num ~ age
++ relevel(gender_three, ref = "Trans man (FTM)")
++ relevel(race_three, ref = "White")
++ relevel(Latinx, ref = "No")
++ relevel(insurance, ref = "Private health insurance")
++ relevel(homelessness, ref = "No")
++ relevel(live_genderid, ref = "Yes")
++ relevel(mooddisorder, ref = 'No')
++ relevel(PHQ4_two, ref = 'Normal/Mild (0-5)')
++ relevel(PTSD_clinical, ref = 'No')
++ relevel(childhood_abuse, ref = 'No')
++ relevel(bullying, ref = 'Never/rarely')
++ relevel(any_ipv, ref = 'No')
++ relevel(DAST_clinical, ref = 'No')
++ relevel(EDS_quart, ref = 'Q1')
++ EDS_reason_n, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_life_multi_combined <- pool(SA_life_multi)
+
+options(digits = 3)
+
+summary(SA_life_multi_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+#Removed hormones due to extremely large 95% CI.
+
+SA_six_multi <- with(imputed_mids, exp <- geeglm(SA_pastsix_num ~ age
++ relevel(gender_three, ref = "Trans man (FTM)")
++ relevel(race_three, ref = "White")
++ relevel(Latinx, ref = "No")
++ relevel(insurance, ref = "Private health insurance")
++ relevel(homelessness_2, ref = "No")
++ relevel(PHQ4_two, ref = 'Normal/Mild (0-5)')
++ relevel(PTSD_clinical, ref = 'No')
++ relevel(support_level, ref = 'High (61-84)')
++ relevel(childhood_abuse, ref = 'No')
++ relevel(any_ipv, ref = 'No')
++ relevel(DAST_clinical, ref = 'No')
++ relevel(EDS_quart, ref = 'Q1')
++ EDS_reason_n, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+SA_six_multi_combined <- pool(SA_six_multi)
+
+options(digits = 3)
+
+summary(SA_six_multi_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_life_multi <- with(imputed_mids, exp <- geeglm(NSSI_lifetime_num ~ age
++ relevel(gender_three, ref = "Trans man (FTM)")
++ relevel(race_three, ref = "White")
++ relevel(Latinx, ref = "No")
++ sexminority
++ relevel(insurance, ref = "Private health insurance")
++ relevel(homelessness, ref = "No")
++ relevel(live_genderid, ref = "Yes")
++ gendermarker_change
++ relevel(any_surgery, ref = "No")
++ relevel(mooddisorder, ref = 'No')
++ relevel(PHQ4_two, ref = 'Normal/Mild (0-5)')
++ relevel(PTSD_clinical, ref = 'No')
++ relevel(trans_activism, ref = 'No')
++ relevel(socialization_in_person, ref = 'None')
++ relevel(childhood_abuse, ref = 'No')
++ relevel(bullying, ref = 'Never/rarely')
++ relevel(any_ipv, ref = 'No')
++ relevel(AUDIT_clinical, ref = 'No')
++ relevel(DAST_clinical, ref = 'No')
++ relevel(EDS_quart, ref = 'Q1')
++ EDS_reason_n, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_life_multi_combined <- pool(NSSI_life_multi)
+
+options(digits = 3)
+
+summary(NSSI_life_multi_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NSSI_six_multi <- with(imputed_mids, exp <- geeglm(NSSI_pastsix_num ~ age
++ relevel(gender_three, ref = "Trans man (FTM)")
++ relevel(race_three, ref = "White")
++ relevel(Latinx, ref = "No")
++ relevel(homelessness_2, ref = "No")
++ relevel(mooddisorder, ref = 'No')
++ relevel(PHQ4_two, ref = 'Normal/Mild (0-5)')
++ relevel(PTSD_clinical, ref = 'No')
++ relevel(support_level, ref = 'High (61-84)')
++ relevel(socialization_in_person, ref = 'None')
++ relevel(childhood_abuse, ref = 'No')
++ relevel(bullying, ref = 'Never/rarely')
++ relevel(any_ipv, ref = 'No')
++ relevel(DAST_clinical, ref = 'No')
++ relevel(EDS_quart, ref = 'Q1')
++ EDS_reason_n, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NSSI_six_multi_combined <- pool(NSSI_six_multi)
+
+options(digits = 3)
+
+summary(NSSI_six_multi_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_multi <- with(imputed_mids, exp <- geeglm(PHQ4_two_num ~ age
++ relevel(gender_three, ref = "Trans man (FTM)")
++ relevel(race_three, ref = "White")
++ relevel(Latinx, ref = "No")
++ sexminority
++ relevel(insurance, ref = "Private health insurance")
++ relevel(live_genderid, ref = "Yes")
++ relevel(hormone_current, ref = "No")
++ relevel(mooddisorder, ref = 'No')
++ relevel(PTSD_clinical, ref = 'No')
++ relevel(support_level, ref = 'High (61-84)')
++ relevel(trans_activism, ref = 'No')
++ relevel(childhood_abuse, ref = 'No')
++ relevel(bullying, ref = 'Never/rarely')
++ relevel(DAST_clinical, ref = 'No')
++ relevel(EDS_quart, ref = 'Q1')
++ EDS_reason_n, family = poisson(link = "log"), id = dbid, corstr = "exchangeable"))
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+PHQ_multi_combined <- pool(PHQ_multi)
+
+options(digits = 3)
+
+summary(PHQ_multi_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```

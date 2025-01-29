@@ -1,0 +1,1033 @@
+---
+title: 'LEGACY Project: Hormones & STI-HIV Testing'
+author: "David R. Pletta, MPH"
+date: "12/16/2021"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+library(tinytex)
+library(formatR)
+knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 50), tidy = TRUE)
+```
+
+```{r, message = FALSE}
+library(tidylog)
+library(tidyverse)
+library(haven)
+library(psych)
+library(geepack)
+library(ggplot2)
+library(purrr)
+```
+
+```{r, message = FALSE}
+#Uploading dataset
+
+setwd("/Users/davidpletta/Dropbox (Brown)/ Data Projects (David Pletta)/LEGACY/Project - GA Hormones and HIV-STI Testing (EMR)")
+
+emr <- read_sas("emr_hormones_stihiv_01242022.sas7bdat")
+```
+
+```{r}
+#Coding for being on any hormones
+emr$on_hormones <- ifelse(emr$On_Blocker == 1 | 
+                            emr$On_Antiandrogen == 1 | emr$On_Estrogen == 1 | 
+                            emr$On_Progesterone == 1 | 
+                            emr$On_Testosterone == 1, 1, 0)
+
+#Table for frequency of patients on hormones
+table(emr$on_hormones)
+#Table for proportion of patients on hormones
+prop.table(table(emr$on_hormones))
+```
+
+```{r}
+#Cleaning homeless variable
+emr <- mutate(emr, hmless = case_when(Homeless == "Doubling Up" 
+                                      | Homeless == "Homeless - street" 
+                                      | Homeless == "Homeless shelter" | 
+                                        Homeless == "Transitional housing" ~ 1,
+                                      TRUE ~ 0))
+```
+
+```{r}
+table(emr$hmless)
+```
+
+### Exploring data: Plotting the number of STI and HIV test occasions at both sites.
+
+```{r}
+#STI tests
+ggplot(emr, aes(x=Year, y=Loc_STI_Tests, group=Site)) +
+  geom_line(aes(linetype=Site, color=Site))+
+  geom_point(aes(color=Site))+
+  labs(y = "Number of STI testing incidents in the full cohort", colour = "Site")
+
+```
+
+```{r}
+#HIV tests
+ggplot(emr, aes(x=Year, y=Loc_HIV_Tests, group=Site)) +
+  geom_line(aes(linetype=Site, color=Site))+
+  geom_point(aes(color=Site))+
+  labs(y = "Number of HIV testing incidents in the full cohort", colour = "Site")
+
+```
+
+  > Based on the above plots, there appears to have been a dramatic 
+  increase in HIV testing at Callen-Lorde between 2015 and 2016. 
+  Due to this dramatic change in the outcome, 
+  I am going to restrict the analysis to 2016-2019.
+
+### Restricting dataset: Creating hormone naive dataset for 2016-2019
+
+```{r}
+#Restricting to 2016 to 2019 due to drastic changes in HIV testing at Callen-Lorde.
+emr_sub <- emr[which(emr$Years == 3), ]
+```
+
+```{r}
+#Table to see how many participants we will need to ID.
+#It looks like a total of 828 participants are HIV- and not on hormones in 2016.
+table(emr_sub$on_hormones, emr_sub$HIV_Status)
+```
+
+```{r}
+#Creating an index for being hormone naive and HIV- at baseline (2016).
+emr_sub$ind <- ifelse((emr_sub$on_hormones == 0) & (emr_sub$HIV_Status == 0), 1, 0)
+emr_list <- emr_sub[which(emr_sub$ind == 1),]
+#List of IDs for hormone naive and HIV- participants at baseline (2016).
+id_list <- emr_list$ID
+```
+
+```{r}
+#Again restricting observations to 2016 through 2019.
+emr_cohort <- emr[which(emr$Years > 2),]
+```
+
+```{r}
+#Subsetting data using an index of IDs for participants who 
+#are HIV- and hormone naive at baseline (2016)
+emr_cohort <- emr_cohort[emr_cohort$ID %in% id_list,]
+```
+
+```{r}
+#Testing if we successfully subset the dataset.
+#We have zero participants on hormones at baseline and zero 
+#with HIV at baselines, so we're good to go!
+table(emr_cohort$Year, emr_cohort$on_hormones)
+table(emr_cohort$Year, emr_cohort$HIV_Status)
+```
+
+```{r}
+#DID NOT REMOVE THESE PATIENTS FOR THE PAPER 12/21/2023
+#10 patients HIV seroconverted between 2016 and 2019
+
+#seroconvert_ids <- emr_cohort$ID[emr_cohort$HIV_Status == 1]
+
+#library(purrr)
+
+#`%not_in%` <- purrr::negate(`%in%`)
+
+#emr_cohort <- emr_cohort[which(emr_cohort$ID %not_in% seroconvert_ids),]
+```
+
+```{r}
+emr_cohort_baseline <- emr_cohort[which(emr_cohort$Year == 2016),]
+```
+
+```{r}
+table(emr_cohort$Year, emr_cohort$HIV_Test)
+table(emr_cohort$on_hormones, emr_cohort$HIV_Test)
+```
+
+```{r}
+#Creating hormone and no hormone groups where everyone is HIV-
+emr_cohort <- mutate(emr_cohort, hormone_status_hivneg = 
+                       case_when((on_hormones == 0) & (HIV_Status == 0) == 1 ~ 0,
+                                 (on_hormones == 1) & (HIV_Status == 0) == 1 ~ 1))
+```
+
+```{r}
+#Checking that the code worked for the hormone and HIV- indicator.
+table(emr_cohort$Year, emr_cohort$HIV_Test, emr_cohort$hormone_status_hivneg)
+```
+
+```{r}
+#Creating a categorical variable for percentage of federal poverty level (FPL)
+#138% is cutoff for Medicaid eligibility
+#250% is cutoff for ACA cost sharing eligibility
+
+emr_cohort <- mutate(emr_cohort, FPL_Level = 
+                       case_when((0 <= FPL) & (FPL <= 138) ~ 0,
+                                 (139 <= FPL) & (FPL <= 250) ~ 1,
+                                 FPL >= 251 ~ 2))
+```
+
+```{r}
+#Recoding race so White is the referent group
+emr_cohort <- mutate(emr_cohort, RaceRC = case_when(
+  RaceID == 5 ~ 0,
+  RaceID == 1 ~ 1,
+  RaceID == 2 ~ 2,
+  RaceID == 3 ~ 3,
+  RaceID == 4 ~ 4
+))
+```
+
+```{r}
+table(emr_cohort$On_PrEP, emr_cohort$Year)
+```
+
+## Multiple Imputation with Chained Equations (MICE)
+
+```{r}
+#Evaluating missingness
+prop.table(table(is.na(emr_cohort$RaceRC)))
+prop.table(table(is.na(emr_cohort$Hispanic)))
+prop.table(table(is.na(emr_cohort$Gender4)))
+prop.table(table(is.na(emr_cohort$Insure)))
+prop.table(table(is.na(emr_cohort$FPL_Level)))
+prop.table(table(is.na(emr_cohort$hmless)))
+```
+
+```{r}
+missing_2016 <- emr_cohort[which(emr_cohort$Year == 2016),]
+```
+
+```{r}
+#Evaluating missingness cross-sectionally for patients at baseline (2016)
+prop.table(table(is.na(missing_2016$RaceRC)))
+prop.table(table(is.na(missing_2016$Hispanic)))
+prop.table(table(is.na(missing_2016$Gender4)))
+prop.table(table(is.na(missing_2016$Insure)))
+prop.table(table(is.na(missing_2016$FPL_Level)))
+prop.table(table(is.na(missing_2016$hmless)))
+```
+
+
+## Examining types of STI tests in cohort
+
+```{r}
+#Creating wide dataset to assess STI testing types over time
+
+library(sqldf)
+
+Tests_2016 <- sqldf('SELECT ID, Last_CT_Cervical as Last_CT_Cervical_2016, Last_CT_Urethral as Last_CT_Urethral_2016, 
+Last_CT_Rectal as Last_CT_Rectal_2016, Last_CT_Pharyngeal as Last_CT_Pharyngeal_2016, 
+Last_GC_Cervical as Last_GC_Cervical_2016, Last_GC_Urethral as Last_GC_Urethral_2016, 
+Last_GC_Rectal as Last_GC_Rectal_2016, Last_GC_Pharyngeal as Last_GC_Pharyngeal_2016,
+Last_HIV_Test_Date as Last_HIV_Test_Date_2016
+FROM emr_cohort WHERE Year = 2016 ORDER BY ID')
+
+Tests_2017 <- sqldf('SELECT ID, Last_CT_Cervical as Last_CT_Cervical_2017, Last_CT_Urethral as Last_CT_Urethral_2017, 
+Last_CT_Rectal as Last_CT_Rectal_2017, Last_CT_Pharyngeal as Last_CT_Pharyngeal_2017, 
+Last_GC_Cervical as Last_GC_Cervical_2017, Last_GC_Urethral as Last_GC_Urethral_2017, 
+Last_GC_Rectal as Last_GC_Rectal_2017, Last_GC_Pharyngeal as Last_GC_Pharyngeal_2017,
+Last_HIV_Test_Date as Last_HIV_Test_Date_2017
+FROM emr_cohort WHERE Year = 2017 ORDER BY ID')
+
+Tests_2018 <- sqldf('SELECT ID, Last_CT_Cervical as Last_CT_Cervical_2018, Last_CT_Urethral as Last_CT_Urethral_2018, 
+Last_CT_Rectal as Last_CT_Rectal_2018, Last_CT_Pharyngeal as Last_CT_Pharyngeal_2018, 
+Last_GC_Cervical as Last_GC_Cervical_2018, Last_GC_Urethral as Last_GC_Urethral_2018, 
+Last_GC_Rectal as Last_GC_Rectal_2018, Last_GC_Pharyngeal as Last_GC_Pharyngeal_2018,
+Last_HIV_Test_Date as Last_HIV_Test_Date_2018
+FROM emr_cohort WHERE Year = 2018 ORDER BY ID')
+
+Tests_2019 <- sqldf('SELECT ID, Last_CT_Cervical as Last_CT_Cervical_2019, Last_CT_Urethral as Last_CT_Urethral_2019, 
+Last_CT_Rectal as Last_CT_Rectal_2019, Last_CT_Pharyngeal as Last_CT_Pharyngeal_2019, 
+Last_GC_Cervical as Last_GC_Cervical_2019, Last_GC_Urethral as Last_GC_Urethral_2019, 
+Last_GC_Rectal as Last_GC_Rectal_2019, Last_GC_Pharyngeal as Last_GC_Pharyngeal_2019,
+Last_HIV_Test_Date as Last_HIV_Test_Date_2019
+FROM emr_cohort WHERE Year = 2019 ORDER BY ID')
+
+```
+
+```{r}
+Tests_1617 <- merge(Tests_2016, Tests_2017, by = "ID", all.x = TRUE)
+
+Tests_161718 <- merge(Tests_1617, Tests_2018, by = "ID", all.x = TRUE)
+
+tests_wide <- merge(Tests_161718, Tests_2019, by = "ID", all.x = TRUE)
+```
+
+```{r}
+tests_wide$Any_CT_Cervical <- ifelse((!is.na(tests_wide$Last_CT_Cervical_2016) == TRUE) |
+                                       (!is.na(tests_wide$Last_CT_Cervical_2017) == TRUE) |
+                                       (!is.na(tests_wide$Last_CT_Cervical_2018) == TRUE) |
+                                       (!is.na(tests_wide$Last_CT_Cervical_2019) == TRUE), 1, 0)
+
+tests_wide$Any_CT_Urethral <- ifelse((!is.na(tests_wide$Last_CT_Urethral_2016) == TRUE) |
+                                       (!is.na(tests_wide$Last_CT_Urethral_2017) == TRUE) |
+                                       (!is.na(tests_wide$Last_CT_Urethral_2018) == TRUE) |
+                                       (!is.na(tests_wide$Last_CT_Urethral_2019) == TRUE), 1, 0)
+
+tests_wide$Any_CT_Rectal <- ifelse((!is.na(tests_wide$Last_CT_Rectal_2016) == TRUE) |
+                                       (!is.na(tests_wide$Last_CT_Rectal_2017) == TRUE) |
+                                       (!is.na(tests_wide$Last_CT_Rectal_2018) == TRUE) |
+                                       (!is.na(tests_wide$Last_CT_Rectal_2019) == TRUE), 1, 0)
+
+tests_wide$Any_CT_Pharyngeal <- ifelse((!is.na(tests_wide$Last_CT_Pharyngeal_2016) == TRUE) |
+                                       (!is.na(tests_wide$Last_CT_Pharyngeal_2017) == TRUE) |
+                                       (!is.na(tests_wide$Last_CT_Pharyngeal_2018) == TRUE) |
+                                       (!is.na(tests_wide$Last_CT_Pharyngeal_2019) == TRUE), 1, 0)
+```
+
+```{r}
+prop.table(table(tests_wide$Any_CT_Cervical))
+prop.table(table(tests_wide$Any_CT_Urethral))
+prop.table(table(tests_wide$Any_CT_Rectal))
+prop.table(table(tests_wide$Any_CT_Pharyngeal))
+```
+
+```{r}
+tests_wide$Any_GC_Cervical <- ifelse((!is.na(tests_wide$Last_GC_Cervical_2016) == TRUE) |
+                                       (!is.na(tests_wide$Last_GC_Cervical_2017) == TRUE) |
+                                       (!is.na(tests_wide$Last_GC_Cervical_2018) == TRUE) |
+                                       (!is.na(tests_wide$Last_GC_Cervical_2019) == TRUE), 1, 0)
+
+tests_wide$Any_GC_Urethral <- ifelse((!is.na(tests_wide$Last_GC_Urethral_2016) == TRUE) |
+                                       (!is.na(tests_wide$Last_GC_Urethral_2017) == TRUE) |
+                                       (!is.na(tests_wide$Last_GC_Urethral_2018) == TRUE) |
+                                       (!is.na(tests_wide$Last_GC_Urethral_2019) == TRUE), 1, 0)
+
+tests_wide$Any_GC_Rectal <- ifelse((!is.na(tests_wide$Last_GC_Rectal_2016) == TRUE) |
+                                       (!is.na(tests_wide$Last_GC_Rectal_2017) == TRUE) |
+                                       (!is.na(tests_wide$Last_GC_Rectal_2018) == TRUE) |
+                                       (!is.na(tests_wide$Last_GC_Rectal_2019) == TRUE), 1, 0)
+
+tests_wide$Any_GC_Pharyngeal <- ifelse((!is.na(tests_wide$Last_GC_Pharyngeal_2016) == TRUE) |
+                                       (!is.na(tests_wide$Last_GC_Pharyngeal_2017) == TRUE) |
+                                       (!is.na(tests_wide$Last_GC_Pharyngeal_2018) == TRUE) |
+                                       (!is.na(tests_wide$Last_GC_Pharyngeal_2019) == TRUE), 1, 0)
+```
+
+```{r}
+prop.table(table(tests_wide$Any_GC_Cervical))
+prop.table(table(tests_wide$Any_GC_Urethral))
+prop.table(table(tests_wide$Any_GC_Rectal))
+prop.table(table(tests_wide$Any_GC_Pharyngeal))
+```
+
+```{r}
+tests_wide$STI_Test_Type_Count <- tests_wide$Any_CT_Cervical + tests_wide$Any_CT_Urethral + tests_wide$Any_CT_Rectal + tests_wide$Any_CT_Pharyngeal +
+  tests_wide$Any_GC_Cervical + tests_wide$Any_GC_Urethral + tests_wide$Any_GC_Rectal + tests_wide$Any_GC_Pharyngeal
+
+tests_wide$Any_STI_Test[tests_wide$STI_Test_Type_Count == 0] <- 0
+tests_wide$Any_STI_Test[tests_wide$STI_Test_Type_Count > 0] <- 1
+```
+
+```{r}
+tests_wide$Any_HIV_Test <- ifelse((!is.na(tests_wide$Last_HIV_Test_Date_2016) == TRUE) |
+                                       (!is.na(tests_wide$Last_HIV_Test_Date_2017) == TRUE) |
+                                       (!is.na(tests_wide$Last_HIV_Test_Date_2018) == TRUE) |
+                                       (!is.na(tests_wide$Last_HIV_Test_Date_2019) == TRUE), 1, 0)
+```
+
+```{r}
+prop.table(table(tests_wide$Any_STI_Test))
+
+prop.table(table(tests_wide$Any_HIV_Test))
+```
+
+```{r}
+table(emr_cohort$HIV_Status, emr_cohort$Year)
+```
+
+
+## Cleaning Data
+
+```{r}
+#The geeglm function only works with complete data, 
+#so I am preparing data for multiple imputation.
+
+#Subsetting dataset with the variables I need.
+emr_test <- subset(emr_cohort, 
+                   select=c(Site, Year, 
+                            ID, Age, RaceRC, Hispanic, SAB, Gender4, Insure, FPL_Level, 
+                            hmless, on_hormones, On_PrEP, HIV_Status, HIV_Test, STI_Positive, STI_Test))
+
+emr_test$Race <- factor(emr_test$RaceRC, levels = c(0, 1, 2, 3, 4), labels = c("White", "Asian", "Black/African American", "Multiracial", "Another Racial Identity"))
+emr_test$Hispanic <- factor(emr_test$Hispanic, levels = c(0, 1), labels = c("No", "Yes"))
+emr_test$SAB <- factor(emr_test$SAB, levels = c(0, 1), labels = c("AFAB", "AMAB"))
+emr_test$Gender <- factor(emr_test$Gender4, levels = c(0, 1, 2, 3), labels = c("Woman/female", "Man/male", "Nonbinary AFAB", "Nonbinary AMAB"))
+emr_test$Insure <- factor(emr_test$Insure, levels = c(0, 1, 2), labels = c("Uninsured", "Public insurance", "Private insurance"))
+emr_test$FPL_Level <- factor(emr_test$FPL_Level, levels = c(0,1,2), labels = c("0-138% FPL", "139-250% FPL", "251%+ FPL"))
+emr_test$Homeless <- factor(emr_test$hmless, levels = c(0, 1), labels = c("No", "Yes"))
+emr_test$On_PrEP <- factor(emr_test$On_PrEP, levels = c(0, 1), labels = c("No", "Yes"))
+emr_test$On_Hormones <- factor(emr_test$on_hormones, levels = c(0, 1), labels = c("No", "Yes"))
+emr_test$HIV_Status <- factor(emr_test$HIV_Status, levels = c(0, 1), labels = c("HIV-", "HIV+"))
+emr_test$HIV_Test <- factor(emr_test$HIV_Test, levels = c(0, 1), labels = c("No", "Yes"))
+emr_test$STI_Positive <- factor(emr_test$STI_Positive, levels = c(0, 1), labels = c("No", "Yes"))
+emr_test$STI_Test <-factor(emr_test$STI_Test, levels = c(0, 1), labels = c("No", "Yes"))
+
+#Dropping renamed variables
+emr_test <- subset(emr_test, select = -c(RaceRC, Gender4, hmless, on_hormones, Homeless, STI_Positive, HIV_Status))
+```
+
+## Complete-Case Analysis for STI Test
+
+```{r}
+STI_repeated <- subset(emr_test, select = -c(HIV_Test))
+
+STI_complete <- STI_repeated[complete.cases(STI_repeated),]
+
+#Creating a categorical variable for age
+STI_complete <- mutate(STI_complete, AgeCat = case_when(
+  (18 <= Age) & (Age <= 24) ~ 0,
+  (25 <= Age) & (Age <= 30) ~ 1,
+  (31 <= Age) & (Age <= 40) ~ 2,
+  (41 <= Age) & (Age <= 50) ~ 3,
+  (Age >= 51) ~ 4))
+
+STI_complete$AgeCat <- factor(STI_complete$AgeCat, levels = c(0, 1, 2, 3, 4), 
+                                 labels = c("18-24 years", "25-30 years", "31-40 years",
+                                            "41-50 years", "51+ years"))
+
+#Creating numeric outcome variable for STI test
+STI_complete <- mutate(STI_complete, STI_Test = case_when(
+  STI_Test == "No" ~ 0,
+  STI_Test == "Yes" ~ 1
+))
+
+STI_complete$Obs_Year <- NA
+
+STI_complete$Obs_Year[STI_complete$Year == 2016] <- 0
+STI_complete$Obs_Year[STI_complete$Year == 2017] <- 1
+STI_complete$Obs_Year[STI_complete$Year == 2018] <- 2
+STI_complete$Obs_Year[STI_complete$Year == 2019] <- 3
+```
+
+```{r}
+library(geepack)
+
+CC_STI_unadjusted <- geeglm(STI_Test ~ On_Hormones + Site + Obs_Year, family = binomial(link = "logit"), data = STI_complete, id = ID, 
+                            waves = Obs_Year, corstr = "exchangeable")
+
+CC_STI_unadjusted_df <- df.residual(CC_STI_unadjusted)
+
+summary(CC_STI_unadjusted)
+```
+
+```{r}
+library(geepack)
+
+CC_STI_adjusted <- geeglm(STI_Test ~ On_Hormones + Site + AgeCat + Race + Hispanic + Gender + Insure
+                          + FPL_Level + On_PrEP + Obs_Year, family = binomial(link = "logit"), data = STI_complete, id = ID, 
+                          waves = Obs_Year, corstr = "exchangeable")
+
+CC_STI_adjusted_df <- df.residual(CC_STI_adjusted)
+
+summary(CC_STI_adjusted)
+```
+
+## Complete-Case Analysis for HIV Test
+
+```{r}
+HIV_repeated <- subset(emr_test, select = -c(STI_Test))
+
+HIV_complete <- HIV_repeated[complete.cases(HIV_repeated),]
+
+#Creating a categorical variable for age
+HIV_complete <- mutate(HIV_complete, AgeCat = case_when(
+  (18 <= Age) & (Age <= 24) ~ 0,
+  (25 <= Age) & (Age <= 30) ~ 1,
+  (31 <= Age) & (Age <= 40) ~ 2,
+  (41 <= Age) & (Age <= 50) ~ 3,
+  (Age >= 51) ~ 4))
+
+HIV_complete$AgeCat <- factor(HIV_complete$AgeCat, levels = c(0, 1, 2, 3, 4), 
+                                 labels = c("18-24 years", "25-30 years", "31-40 years",
+                                            "41-50 years", "51+ years"))
+
+#Creating numeric outcome variable for HIV test
+HIV_complete <- mutate(HIV_complete, HIV_Test = case_when(
+  HIV_Test == "No" ~ 0,
+  HIV_Test == "Yes" ~ 1
+))
+
+HIV_complete$Obs_Year <- NA
+
+HIV_complete$Obs_Year[HIV_complete$Year == 2016] <- 0
+HIV_complete$Obs_Year[HIV_complete$Year == 2017] <- 1
+HIV_complete$Obs_Year[HIV_complete$Year == 2018] <- 2
+HIV_complete$Obs_Year[HIV_complete$Year == 2019] <- 3
+```
+
+```{r}
+library(geepack)
+
+CC_HIV_unadjusted <- geeglm(HIV_Test ~ On_Hormones + Site + Obs_Year, family = binomial(link = "logit"), data = HIV_complete, id = ID, 
+                            waves = Obs_Year, corstr = "exchangeable")
+
+CC_HIV_unadjusted_df <- df.residual(CC_HIV_unadjusted)
+
+summary(CC_HIV_unadjusted)
+```
+
+```{r}
+library(geepack)
+
+CC_HIV_adjusted <- geeglm(HIV_Test ~ On_Hormones + Site + AgeCat + Race + Hispanic + Gender + Insure
+                          + FPL_Level + On_PrEP + Obs_Year, family = binomial(link = "logit"), data = HIV_complete, id = ID, 
+                          waves = Obs_Year, corstr = "exchangeable")
+
+CC_HIV_adjusted_df <- df.residual(CC_HIV_adjusted)
+
+summary(CC_HIV_adjusted)
+```
+
+## Building Wide Dataset for Imputation Using SQL
+
+```{r}
+#Creating separate datasets for baseline sociodemographics & time-varying demographics and outcomes
+library(sqldf)
+
+Cohort_Demographics <- sqldf('SELECT ID, Site, Age, Race, Hispanic, SAB, Gender FROM emr_test WHERE Year = 2016 ORDER BY ID')
+
+Outcomes_2016 <- sqldf('SELECT ID, Insure, FPL_Level, On_PrEP, On_Hormones, HIV_Test, STI_Test
+FROM emr_test WHERE Year = 2016 ORDER BY ID')
+
+Outcomes_2017 <- sqldf('SELECT ID, Insure, FPL_Level, On_PrEP, On_Hormones, HIV_Test, STI_Test
+FROM emr_test WHERE Year = 2017 ORDER BY ID')
+
+Outcomes_2018 <- sqldf('SELECT ID, Insure, FPL_Level, On_PrEP, On_Hormones, HIV_Test, STI_Test
+FROM emr_test WHERE Year = 2018 ORDER BY ID')
+
+Outcomes_2019 <- sqldf('SELECT ID, Insure, FPL_Level, On_PrEP, On_Hormones, HIV_Test, STI_Test
+FROM emr_test WHERE Year = 2019 ORDER BY ID')
+```
+
+```{r, message = FALSE, echo = FALSE}
+#Renaming variables in the outcome datasets before proceeding to left joins.
+library(data.table)
+
+setnames(Outcomes_2016, old = c('Insure', 'FPL_Level', 'On_PrEP', 'On_Hormones', 
+                                'HIV_Test', 'STI_Test'), 
+         new = c('Insure_2016', 'FPL_Level_2016', 'On_PrEP_2016', 'On_Hormones_2016', 
+                                'HIV_Test_2016', 'STI_Test_2016'))
+
+setnames(Outcomes_2017, old = c('Insure', 'FPL_Level', 'On_PrEP', 'On_Hormones', 
+                                'HIV_Test', 'STI_Test'), 
+         new = c('Insure_2017', 'FPL_Level_2017', 'On_PrEP_2017', 'On_Hormones_2017', 
+                                'HIV_Test_2017', 'STI_Test_2017'))
+
+setnames(Outcomes_2018, old = c('Insure', 'FPL_Level', 'On_PrEP', 'On_Hormones', 
+                                'HIV_Test', 'STI_Test'), 
+         new = c('Insure_2018', 'FPL_Level_2018', 'On_PrEP_2018', 'On_Hormones_2018', 
+                                'HIV_Test_2018', 'STI_Test_2018'))
+
+setnames(Outcomes_2019, old = c('Insure', 'FPL_Level', 'On_PrEP', 'On_Hormones', 
+                                'HIV_Test', 'STI_Test'), 
+         new = c('Insure_2019', 'FPL_Level_2019', 'On_PrEP_2019', 'On_Hormones_2019', 
+                                'HIV_Test_2019', 'STI_Test_2019'))
+
+```
+
+```{r}
+#Left joining the datasets on patient ID
+
+Demo_16 <- merge(Cohort_Demographics, Outcomes_2016, by = "ID")
+
+Demo_1617 <- merge(Demo_16, Outcomes_2017, by = "ID", all.x = TRUE)
+
+Demo_161718 <- merge(Demo_1617, Outcomes_2018, by = "ID", all.x = TRUE)
+
+cohort_wide <- merge(Demo_161718, Outcomes_2019, by = "ID", all.x = TRUE)
+```
+
+```{r}
+#Converting string variables into factors
+
+cohort_wide$Site <- as.factor(cohort_wide$Site)
+cohort_wide$Race <- as.factor(cohort_wide$Race)
+cohort_wide$Hispanic <- as.factor(cohort_wide$Hispanic)
+cohort_wide$SAB <- as.factor(cohort_wide$SAB)
+cohort_wide$Gender <- as.factor(cohort_wide$Gender)
+
+cohort_wide$Insure_2016 <- as.factor(cohort_wide$Insure_2016)
+cohort_wide$FPL_Level_2016 <- as.factor(cohort_wide$FPL_Level_2016)
+
+cohort_wide$Insure_2017 <- as.factor(cohort_wide$Insure_2017)
+cohort_wide$FPL_Level_2017 <- as.factor(cohort_wide$FPL_Level_2017)
+
+cohort_wide$Insure_2018 <- as.factor(cohort_wide$Insure_2018)
+cohort_wide$FPL_Level_2018 <- as.factor(cohort_wide$FPL_Level_2018)
+
+cohort_wide$Insure_2019 <- as.factor(cohort_wide$Insure_2019)
+cohort_wide$FPL_Level_2019 <- as.factor(cohort_wide$FPL_Level_2019)
+```
+
+#Checking Proportions in the Wide Dataset Before Imputation
+
+```{r}
+prop.table(table(cohort_wide$On_Hormones_2016))
+
+prop.table(table(cohort_wide$On_Hormones_2017))
+
+prop.table(table(cohort_wide$On_Hormones_2018))
+
+prop.table(table(cohort_wide$On_Hormones_2019))
+```
+
+```{r}
+prop.table(table(cohort_wide$On_PrEP_2016))
+
+prop.table(table(cohort_wide$On_PrEP_2017))
+
+prop.table(table(cohort_wide$On_PrEP_2018))
+
+prop.table(table(cohort_wide$On_PrEP_2019))
+```
+
+```{r}
+prop.table(table(cohort_wide$STI_Test_2016))
+
+prop.table(table(cohort_wide$STI_Test_2017))
+
+prop.table(table(cohort_wide$STI_Test_2018))
+
+prop.table(table(cohort_wide$STI_Test_2019))
+```
+
+```{r}
+prop.table(table(cohort_wide$HIV_Test_2016))
+
+prop.table(table(cohort_wide$HIV_Test_2017))
+
+prop.table(table(cohort_wide$HIV_Test_2018))
+
+prop.table(table(cohort_wide$HIV_Test_2019))
+```
+
+
+## Descriptive Statistics for the Observed Data
+
+```{r}
+#Creating a categorical variable for age
+cohort_wide <- mutate(cohort_wide, AgeCat = case_when(
+  (18 <= Age) & (Age <= 24) ~ 0,
+  (25 <= Age) & (Age <= 30) ~ 1,
+  (31 <= Age) & (Age <= 40) ~ 2,
+  (41 <= Age) & (Age <= 50) ~ 3,
+  (Age >= 51) ~ 4))
+
+cohort_wide$AgeCat <- factor(cohort_wide$AgeCat, levels = c(0, 1, 2, 3, 4), 
+                                 labels = c("18-24 years", "25-30 years", "31-40 years",
+                                            "41-50 years", "51+ years"))
+
+```
+
+```{r}
+library(tableone)
+
+obs_demos_2016 <- CreateTableOne(vars = c('Age', 'AgeCat', 'Race', 'Hispanic', 'Gender', 'Insure_2016',
+                                   'FPL_Level_2016', 'On_PrEP_2016', 'On_Hormones_2016', 
+                                   'HIV_Test_2016', 'STI_Test_2016'), data = cohort_wide, includeNA = TRUE)
+
+obs_demos_2016
+```
+
+```{r}
+table(is.na(cohort_wide$AgeCat))
+table(is.na(cohort_wide$Race))
+```
+
+```{r}
+cohort_wide <- subset(cohort_wide, select = -c(AgeCat))
+```
+
+## Multiple Imputation Using MICE
+
+```{r, message = FALSE, echo = FALSE}
+#Using multiple imputation with chained equations for the subset dataset.
+library(mice)
+
+init = mice(cohort_wide, maxit=0, seed=0829) 
+meth = init$method
+
+meth[c("ID")]=""
+meth[c("Site")]=""
+meth[c("Age")]="pmm"
+meth[c("Race")]="polyreg"
+meth[c("Hispanic")]="cart"
+meth[c("SAB")]="cart"
+meth[c("Gender")]="polyreg"
+
+meth[c("On_Hormones_2016")]="cart"
+meth[c("On_PrEP_2016")]="cart"
+meth[c("Insure_2016")]="polyreg"
+meth[c("FPL_Level_2016")]="cart"
+meth[c("HIV_Test_2016")]="cart"
+meth[c("STI_Test_2016")]="cart"
+
+meth[c("On_Hormones_2017")]="cart"
+meth[c("On_PrEP_2017")]="cart"
+meth[c("Insure_2017")]="polyreg"
+meth[c("FPL_Level_2017")]="cart"
+meth[c("HIV_Test_2017")]="cart"
+meth[c("STI_Test_2017")]="cart"
+
+meth[c("On_Hormones_2018")]="cart"
+meth[c("On_PrEP_2018")]="cart"
+meth[c("Insure_2018")]="polyreg"
+meth[c("FPL_Level_2018")]="cart"
+meth[c("HIV_Test_2018")]="cart"
+meth[c("STI_Test_2018")]="cart"
+
+meth[c("On_Hormones_2019")]="cart"
+meth[c("On_PrEP_2019")]="cart"
+meth[c("Insure_2019")]="polyreg"
+meth[c("FPL_Level_2019")]="cart"
+meth[c("HIV_Test_2019")]="cart"
+meth[c("STI_Test_2019")]="cart"
+
+predM = init$predictorMatrix
+```
+
+```{r}
+#Removing IDs and Outcome Variables (2017-2019) from the Predictor Matrix
+predM[,1] <- 0
+predM[,14:31] <- 0
+```
+
+```{r, eval = FALSE}
+#Applying multiple imputation with chained equations to the wide cohort dataset.
+library(mice)
+
+imputed_data <- mice(cohort_wide, method=meth, predictorMatrix = predM, m=100, seed = 0829)
+```
+
+```{r}
+library(mice)
+
+wide_imputed_dataset <- complete(imputed_data, action="long", include=FALSE)
+```
+
+```{r}
+library(miceadds)
+
+#Checking missingness in the imputed datasets
+data.frame(prop_miss(wide_imputed_dataset))
+```
+
+```{r}
+prop.table(table(wide_imputed_dataset$On_Hormones_2016))
+
+prop.table(table(wide_imputed_dataset$On_Hormones_2017))
+
+prop.table(table(wide_imputed_dataset$On_Hormones_2018))
+
+prop.table(table(wide_imputed_dataset$On_Hormones_2019))
+```
+
+```{r}
+prop.table(table(wide_imputed_dataset$STI_Test_2016))
+
+prop.table(table(wide_imputed_dataset$STI_Test_2017))
+
+prop.table(table(wide_imputed_dataset$STI_Test_2018))
+
+prop.table(table(wide_imputed_dataset$STI_Test_2019))
+```
+
+```{r}
+prop.table(table(wide_imputed_dataset$HIV_Test_2016))
+
+prop.table(table(wide_imputed_dataset$HIV_Test_2017))
+
+prop.table(table(wide_imputed_dataset$HIV_Test_2018))
+
+prop.table(table(wide_imputed_dataset$HIV_Test_2019))
+```
+
+
+## Descriptive Statistics for the Imputed Datasets
+
+```{r}
+#Creating a categorical variable for age
+wide_imputed_dataset <- mutate(wide_imputed_dataset, AgeCat = case_when(
+  (18 <= Age) & (Age <= 24) ~ 0,
+  (25 <= Age) & (Age <= 30) ~ 1,
+  (31 <= Age) & (Age <= 40) ~ 2,
+  (41 <= Age) & (Age <= 50) ~ 3,
+  (Age >= 51) ~ 4))
+
+wide_imputed_dataset$AgeCat <- factor(wide_imputed_dataset$AgeCat, levels = c(0, 1, 2, 3, 4), 
+                                 labels = c("18-24 years", "25-30 years", "31-40 years",
+                                            "41-50 years", "51+ years"))
+
+```
+
+
+```{r}
+library(tableone)
+
+#Decriptive statistics across the 82,600 observations (i.e., the 100 imputed datasets)
+
+table_demo_imputed_2016 <- CreateTableOne(vars = c('Age', 'AgeCat', 'Race', 'Hispanic', 'Gender', 'Insure_2016',
+                                   'FPL_Level_2016', 'On_PrEP_2016', 'On_Hormones_2016',
+                                   'HIV_Test_2016', 'STI_Test_2016'), data = wide_imputed_dataset, 
+                                   includeNA = TRUE)
+
+table_demo_imputed_2016
+```
+
+```{r}
+library(tableone)
+
+table_demo_imputed_2017 <- CreateTableOne(vars = c('Age', 'AgeCat', 'Race', 'Hispanic', 'Gender', 'Insure_2017',
+                                   'FPL_Level_2017', 'On_PrEP_2017', 'On_Hormones_2017',
+                                   'HIV_Test_2017', 'STI_Test_2017'), data = wide_imputed_dataset, 
+                                   includeNA = TRUE)
+
+table_demo_imputed_2017
+```
+
+```{r}
+library(tableone)
+
+table_demo_imputed_2018 <- CreateTableOne(vars = c('Age', 'AgeCat', 'Race', 'Hispanic', 'Gender', 'Insure_2018',
+                                   'FPL_Level_2018', 'On_PrEP_2018', 'On_Hormones_2018',
+                                   'HIV_Test_2018', 'STI_Test_2018'), data = wide_imputed_dataset, 
+                                   includeNA = TRUE)
+
+table_demo_imputed_2018
+```
+
+```{r}
+library(tableone)
+
+table_demo_imputed_2019 <- CreateTableOne(vars = c('Age', 'AgeCat', 'Race', 'Hispanic', 'Gender', 'Insure_2019',
+                                   'FPL_Level_2019', 'On_PrEP_2019', 'On_Hormones_2019',
+                                   'HIV_Test_2019', 'STI_Test_2019'), data = wide_imputed_dataset, 
+                                   includeNA = TRUE)
+
+table_demo_imputed_2019
+```
+
+## Transforming Yearly Datasets into Repeated Measures Dataset
+
+```{r}
+wide_original_dataset <- complete(imputed_data, action="long", include=FALSE)
+```
+
+```{r}
+#Creating placeholder variables for imputation and ID keys
+wide_original_dataset$Imp_Num <- wide_original_dataset$".imp"
+wide_original_dataset$Imp_ID <- wide_original_dataset$".id"
+```
+
+```{r}
+impute_data_2016 <- sqldf("SELECT Imp_Num, Imp_ID, ID, Site, Age, Race, Hispanic, SAB, Gender, Insure_2016 as Insure, FPL_Level_2016
+as FPL_Level, On_Hormones_2016 as On_Hormones, On_PrEP_2016 as On_PrEP, HIV_Test_2016 as HIV_Test, STI_Test_2016 as STI_Test FROM wide_original_dataset ORDER BY Imp_Num")
+
+impute_data_2016$Year <- 2016
+```
+
+```{r}
+impute_data_2017 <- sqldf("SELECT Imp_Num, Imp_ID, ID, Site, Age, Race, Hispanic, SAB, Gender, Insure_2017 as Insure, FPL_Level_2017
+as FPL_Level, On_Hormones_2017 as On_Hormones, On_PrEP_2017 as On_PrEP, HIV_Test_2017 as HIV_Test, STI_Test_2017 as STI_Test FROM wide_original_dataset ORDER BY Imp_Num")
+
+impute_data_2017$Year <- 2017
+```
+
+```{r}
+impute_data_2018 <- sqldf("SELECT Imp_Num, Imp_ID, ID, Site, Age, Race, Hispanic, SAB, Gender, Insure_2018 as Insure, FPL_Level_2018
+as FPL_Level, On_Hormones_2018 as On_Hormones, On_PrEP_2018 as On_PrEP, HIV_Test_2018 as HIV_Test, STI_Test_2018 as STI_Test FROM wide_original_dataset ORDER BY Imp_Num")
+
+impute_data_2018$Year <- 2018
+```
+
+```{r}
+impute_data_2019 <- sqldf("SELECT Imp_Num, Imp_ID, ID, Site, Age, Race, Hispanic, SAB, Gender, Insure_2019 as Insure, FPL_Level_2019
+as FPL_Level, On_Hormones_2019 as On_Hormones, On_PrEP_2019 as On_PrEP, HIV_Test_2019 as HIV_Test, STI_Test_2019 as STI_Test FROM wide_original_dataset ORDER BY Imp_Num")
+
+impute_data_2019$Year <- 2019
+```
+
+```{r}
+long_imputed_data <- rbind(impute_data_2016, impute_data_2017, impute_data_2018, impute_data_2019)
+```
+
+```{r}
+#Recoding imputation and ID keys
+long_imputed_data$".imp" <- long_imputed_data$Imp_Num
+long_imputed_data$".id" <- long_imputed_data$Imp_ID
+
+#Dropping placeholder keys
+long_imputed_data <- subset(long_imputed_data, select = -c(Imp_Num, Imp_ID))
+```
+
+```{r}
+long_imputed_data <- long_imputed_data[order(long_imputed_data$.imp, long_imputed_data$.id),]
+```
+
+### Cleaning Long Dataset
+
+```{r}
+#Recoding character variables as factors
+long_imputed_data$Insure <- as.factor(long_imputed_data$Insure)
+levels(long_imputed_data$Insure)
+
+long_imputed_data$FPL_Level <- as.factor(long_imputed_data$FPL_Level)
+levels(long_imputed_data$FPL_Level)
+
+long_imputed_data$On_Hormones <- as.factor(long_imputed_data$On_Hormones)
+levels(long_imputed_data$On_Hormones)
+
+long_imputed_data$On_PrEP <- as.factor(long_imputed_data$On_PrEP)
+levels(long_imputed_data$On_PrEP)
+
+long_imputed_data$HIV_Test <- as.factor(long_imputed_data$HIV_Test)
+levels(long_imputed_data$HIV_Test)
+
+long_imputed_data$STI_Test <- as.factor(long_imputed_data$STI_Test)
+levels(long_imputed_data$STI_Test)
+```
+
+```{r}
+#Adding a variable for observation year
+long_imputed_data <- mutate(long_imputed_data, Obs_Year = case_when(
+  Year == 2016 ~ 0,
+  Year == 2017 ~ 1,
+  Year == 2018 ~ 2,
+  Year == 2019 ~ 3
+))
+
+#Creating a categorical variable for age
+long_imputed_data <- mutate(long_imputed_data, AgeCat = case_when(
+  (18 <= Age) & (Age <= 24) ~ 0,
+  (25 <= Age) & (Age <= 30) ~ 1,
+  (31 <= Age) & (Age <= 40) ~ 2,
+  (41 <= Age) & (Age <= 50) ~ 3,
+  (Age >= 51) ~ 4))
+
+long_imputed_data$AgeCat <- factor(long_imputed_data$AgeCat, levels = c(0, 1, 2, 3, 4), 
+                                 labels = c("18-24 years", "25-30 years", "31-40 years",
+                                            "41-50 years", "51+ years"))
+
+```
+
+```{r}
+#Making sure the test and no test variables are inverted
+prop.table(table(long_imputed_data$STI_Test))
+
+prop.table(table(long_imputed_data$HIV_Test))
+```
+
+```{r}
+long_imputed_data <- mutate(long_imputed_data, STI_Test_Num = case_when(
+  STI_Test == "No" ~ 0,
+  STI_Test == "Yes" ~ 1
+))
+
+long_imputed_data <- mutate(long_imputed_data, HIV_Test_Num = case_when(
+  HIV_Test == "No" ~ 0,
+  HIV_Test == "Yes" ~ 1
+))
+```
+
+
+
+##Creating Dataset List with Complete Data for GEE
+
+```{r}
+imputed_data_list <- split(long_imputed_data, f = long_imputed_data$.imp)
+```
+
+```{r}
+#Recoding character variables to factor variables across datasets
+for (i in 1:length(imputed_data_list)) {
+  imputed_data_list[[i]]$Race <- as.factor(imputed_data_list[[i]]$Race)
+  imputed_data_list[[i]]$Hispanic <- as.factor(imputed_data_list[[i]]$Hispanic)
+  imputed_data_list[[i]]$SAB <- as.factor(imputed_data_list[[i]]$SAB)
+  imputed_data_list[[i]]$Gender <- as.factor(imputed_data_list[[i]]$Gender)
+}
+```
+
+## GEE Modeling Across Datasets
+
+```{r}
+library(miceadds)
+
+imputed_mids <- datalist2mids(imputed_data_list)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+#Unadjusted logistic GEE for odds of having a STI test
+
+STI_unadjusted <- with(imputed_mids, exp <- geeglm(STI_Test_Num ~ On_Hormones + relevel(Site, ref = "FH") + Obs_Year, 
+                                                   family = binomial(link = "logit"), id = ID, waves = Obs_Year, 
+                                                   corstr = "exchangeable"))
+
+```
+
+```{r}
+#Pooling estimates across datasets
+
+STI_combined_unadjusted <- pool(STI_unadjusted, dfcom = CC_STI_unadjusted_df)
+
+summary(STI_combined_unadjusted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+STI_adjusted <- with(imputed_mids, exp <- geeglm(STI_Test_Num ~ On_Hormones + relevel(Site, ref = "FH") + AgeCat + relevel(Race, ref = "White") 
+                                                 + Hispanic + relevel(Gender, ref = "Woman/female") + Insure + FPL_Level + On_PrEP + Obs_Year, 
+                                                 family = binomial(link = "logit"), id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+STI_combined_adjusted <- pool(STI_adjusted, dfcom = CC_STI_adjusted_df)
+
+summary(STI_combined_adjusted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+#Unadjusted logistic GEE for odds of having an HIV test
+
+HIV_unadjusted <- with(imputed_mids, exp <- geeglm(HIV_Test_Num ~ On_Hormones + relevel(Site, ref = "FH") + Obs_Year, 
+                                                   family = binomial(link = "logit"), id = ID, waves = Obs_Year, 
+                                                   corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+HIV_combined_unadjusted <- pool(HIV_unadjusted, dfcom = CC_HIV_unadjusted_df)
+
+summary(HIV_combined_unadjusted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+HIV_adjusted <- with(imputed_mids, exp <- geeglm(HIV_Test_Num ~ On_Hormones + relevel(Site, ref = "FH") + AgeCat + relevel(Race, ref = "White") 
+                                                 + Hispanic + relevel(Gender, ref = "Woman/female") + Insure + FPL_Level + On_PrEP + Obs_Year, 
+                                                 family = binomial(link = "logit"), id = ID, waves = Obs_Year, 
+                                                 corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+HIV_combined_adjusted <- pool(HIV_adjusted, dfcom = CC_HIV_adjusted_df)
+
+summary(HIV_combined_adjusted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```

@@ -1,0 +1,2838 @@
+---
+title: "HIV Brief Report"
+author: "David R. Pletta, MPH"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#Formatting output for knitr
+knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 50), tidy = TRUE)
+
+#Setting the working directory for the markdown document
+knitr::opts_knit$set(root.dir = "/Users/davidpletta/Dropbox (Brown)/ Data Projects (David Pletta)/LEGACY/Project - HIV Brief Report (EMR)/HIV Brief Report Analyses")
+```
+
+```{r}
+library(tidyverse)
+library(tidylog)
+library(haven)
+```
+
+```{r}
+emr <- read_sas('emr_condensed_legacy_09292023.sas7bdat')
+```
+
+## Creating Year of Enrollment Variable
+
+```{r}
+library(sqldf)
+
+enroll_data <- sqldf("SELECT ID, min(Year) as first_year, max(Year) as last_year FROM emr GROUP BY ID")
+
+enroll_data$YearsofCare <- enroll_data$last_year - enroll_data$first_year
+```
+
+```{r}
+emr <- sqldf("SELECT a.*, b.YearsofCare FROM emr as a INNER JOIN enroll_data as b ON a.ID = b.ID")
+```
+
+## Cleaning Variables
+
+```{r}
+emr$Age <- as.numeric(emr$Age)
+emr$SAB <- factor(emr$SAB)
+emr$SAB[emr$SAB == 'NA'] <- NA
+emr$Gender <- factor(emr$Gender)
+emr$Gender[emr$Gender == 'NA'] <- NA
+emr$RaceID <- factor(emr$RaceID)
+emr$RaceID[emr$RaceID == 'NA'] <- NA
+emr$Hispanic <- factor(emr$Hispanic)
+emr$Hispanic[emr$Hispanic == 'NA'] <- NA
+emr$Insure <- factor(emr$Insure)
+emr$Insure[emr$Insure == 'NA'] <- NA
+emr$FPL_Level <- factor(emr$FPL_Level)
+emr$FPL_Level[emr$FPL_Level == 'NA'] <- NA
+emr$HIV_Status <- factor(emr$HIV_Status)
+emr$HIV_Status[emr$HIV_Status == 'NA'] <- NA
+emr$HIV_Viral_Suppressed <- factor(emr$HIV_Viral_Suppressed)
+emr$HIV_Viral_Suppressed[emr$HIV_Viral_Suppressed == 'NA'] <- NA
+```
+
+
+```{r}
+emr <- mutate(emr, Race_5cat = case_when(
+  RaceID == 'White' ~ 0,
+  RaceID == 'Asian' ~ 1,
+  RaceID == 'Black/African American' ~ 2,
+  RaceID == 'Multiracial' ~ 3,
+  RaceID == 'American Indian/Alaska Native' | RaceID == 'Native Hawaiian/Pacific Islander' | RaceID == 'Another Race' ~ 4
+))
+
+emr$Race_5cat <- factor(emr$Race_5cat)
+levels(emr$Race_5cat) <- c("White", "Asian", "Black/African American", "Multiracial", "Another Race")
+table(emr$Race_5cat)
+```
+
+```{r}
+emr <- mutate(emr, Gender_3cat = case_when(
+  Gender == 'Male/FtM' ~ 0,
+  Gender == 'Female/MtF' ~ 1,
+  Gender == 'Nonbinary/Genderqueer' & SAB == 'Female' ~ 2,
+  Gender == 'Nonbinary/Genderqueer' & SAB == 'Male' ~ 2,
+  Gender == 'Another Gender Identity' & SAB == 'Female' ~ 2,
+  Gender == 'Another Gender Identity' & SAB == 'Male' ~ 2
+))
+
+emr$Gender_3cat <- factor(emr$Gender_3cat)
+levels(emr$Gender_3cat) <- c('Male', 'Female', 'Nonbinary')
+table(emr$Gender_3cat)
+```
+
+```{r}
+emr$On_Hormones <- ifelse(emr$On_Blocker == 1 | emr$On_Antiandrogen == 1 | emr$On_Estrogen == 1 | emr$On_Progesterone == 1 | emr$On_Testosterone == 1, 1, 0)
+
+emr$On_Hormones <- factor(emr$On_Hormones)
+levels(emr$On_Hormones) <- c('Not on hormones', 'On hormones')
+table(emr$On_Hormones)
+```
+
+```{r}
+emr$HIV_Viral_Suppressed[emr$HIV_Status == "HIV-Negative"] <- NA
+```
+
+
+
+## Checking Years of Care by HIV Status
+
+```{r}
+data2019 <- emr[which(emr$Year == 2019),]
+```
+
+```{r}
+mean(data2019$YearsofCare, na.rm = TRUE)
+sd(data2019$YearsofCare)
+```
+
+```{r}
+library(dplyr)
+
+data2019 %>% group_by(HIV_Status) %>% summarise(across(.cols = YearsofCare, list(mean = mean, sd = sd)))
+```
+
+```{r}
+data2013 <- emr[which(emr$Year == 2013),]
+```
+
+```{r}
+mean(data2013$YearsofCare, na.rm = TRUE)
+sd(data2013$YearsofCare)
+```
+
+```{r}
+library(dplyr)
+
+data2013 %>% group_by(HIV_Status) %>% summarise(across(.cols = YearsofCare, list(mean = mean, sd = sd)))
+```
+
+```{r}
+yoc_model <- lm(YearsofCare ~ HIV_Status, data = data2019)
+
+summary(yoc_model)
+```
+
+## Yearly datasets
+
+```{r}
+emr_2013 <- emr[which(emr$Year == 2013),]
+emr_2014 <- emr[which(emr$Year == 2014),]
+emr_2015 <- emr[which(emr$Year == 2015),]
+emr_2016 <- emr[which(emr$Year == 2016),]
+emr_2017 <- emr[which(emr$Year == 2017),]
+emr_2018 <- emr[which(emr$Year == 2018),]
+emr_2019 <- emr[which(emr$Year == 2019),]
+```
+
+## Power Calculation Tables
+
+```{r}
+table(emr_2013$On_Hormones, emr_2013$HIV_Status)
+```
+```{r}
+table(emr_2014$On_Hormones, emr_2014$HIV_Status)
+```
+
+```{r}
+table(emr_2015$On_Hormones, emr_2015$HIV_Status)
+```
+
+```{r}
+table(emr_2016$On_Hormones, emr_2016$HIV_Status)
+```
+
+```{r}
+table(emr_2017$On_Hormones, emr_2017$HIV_Status)
+```
+
+```{r}
+table(emr_2018$On_Hormones, emr_2018$HIV_Status)
+```
+
+```{r}
+table(emr_2019$On_Hormones, emr_2019$HIV_Status)
+```
+
+```{r}
+hivpos_2013 <- emr_2013[which(emr_2013$HIV_Status == "HIV-Positive"),]
+hivpos_2014 <- emr_2014[which(emr_2014$HIV_Status == "HIV-Positive"),]
+hivpos_2015 <- emr_2015[which(emr_2015$HIV_Status == "HIV-Positive"),]
+hivpos_2016 <- emr_2016[which(emr_2016$HIV_Status == "HIV-Positive"),]
+hivpos_2017 <- emr_2017[which(emr_2017$HIV_Status == "HIV-Positive"),]
+hivpos_2018 <- emr_2018[which(emr_2018$HIV_Status == "HIV-Positive"),]
+hivpos_2019 <- emr_2019[which(emr_2019$HIV_Status == "HIV-Positive"),]
+```
+
+```{r}
+table(hivpos_2013$On_Hormones, hivpos_2013$HIV_Viral_Suppressed, useNA = 'always')
+```
+
+```{r}
+table(hivpos_2014$On_Hormones, hivpos_2014$HIV_Viral_Suppressed, useNA = 'always')
+```
+
+```{r}
+table(hivpos_2015$On_Hormones, hivpos_2015$HIV_Viral_Suppressed, useNA = 'always')
+```
+
+```{r}
+table(hivpos_2016$On_Hormones, hivpos_2016$HIV_Viral_Suppressed, useNA = 'always')
+```
+
+```{r}
+table(hivpos_2017$On_Hormones, hivpos_2017$HIV_Viral_Suppressed, useNA = 'always')
+```
+
+```{r}
+table(hivpos_2018$On_Hormones, hivpos_2018$HIV_Viral_Suppressed, useNA = 'always')
+```
+
+```{r}
+table(hivpos_2019$On_Hormones, hivpos_2019$HIV_Viral_Suppressed, useNA = 'always')
+```
+
+```{r}
+table(emr_2013$On_Hormones)
+```
+
+```{r}
+table(emr_2013$HIV_Status)
+```
+
+```{r}
+table(emr_2013$HIV_Viral_Suppressed)
+```
+
+```{r}
+table(emr_2014$On_Hormones)
+```
+
+```{r}
+table(emr_2014$HIV_Status)
+```
+
+```{r}
+table(emr_2014$HIV_Viral_Suppressed)
+```
+
+```{r}
+table(emr_2015$On_Hormones)
+```
+
+```{r}
+table(emr_2015$HIV_Status)
+```
+
+```{r}
+table(emr_2015$HIV_Viral_Suppressed)
+```
+
+```{r}
+table(emr_2016$On_Hormones)
+```
+
+```{r}
+table(emr_2016$HIV_Status)
+```
+
+```{r}
+table(emr_2016$HIV_Viral_Suppressed)
+```
+
+```{r}
+table(emr_2017$On_Hormones)
+```
+
+```{r}
+table(emr_2017$HIV_Status)
+```
+
+```{r}
+table(emr_2017$HIV_Viral_Suppressed)
+```
+
+```{r}
+table(emr_2018$On_Hormones)
+```
+
+```{r}
+table(emr_2018$HIV_Status)
+```
+
+```{r}
+table(emr_2018$HIV_Viral_Suppressed)
+```
+
+
+```{r}
+table(emr_2019$On_Hormones)
+```
+
+```{r}
+table(emr_2019$HIV_Status)
+```
+
+```{r}
+table(emr_2019$HIV_Viral_Suppressed)
+```
+
+## Figures
+
+```{r}
+table(emr$RaceID, emr$Gender)
+```
+
+```{r}
+hivneg_2013 <- emr_2013[which(emr_2013$HIV_Status == "HIV-Negative"),]
+hivneg_2014 <- emr_2014[which(emr_2014$HIV_Status == "HIV-Negative"),]
+hivneg_2015 <- emr_2015[which(emr_2015$HIV_Status == "HIV-Negative"),]
+hivneg_2016 <- emr_2016[which(emr_2016$HIV_Status == "HIV-Negative"),]
+hivneg_2017 <- emr_2017[which(emr_2017$HIV_Status == "HIV-Negative"),]
+hivneg_2018 <- emr_2018[which(emr_2018$HIV_Status == "HIV-Negative"),]
+hivneg_2019 <- emr_2019[which(emr_2019$HIV_Status == "HIV-Negative"),]
+```
+
+### Race Tables
+
+```{r}
+table(emr_2013$Race_5cat, emr_2013$Gender_3cat)
+```
+
+```{r}
+table(emr_2014$Race_5cat, emr_2014$Gender_3cat)
+```
+
+```{r}
+table(emr_2015$Race_5cat, emr_2015$Gender_3cat)
+```
+
+```{r}
+table(emr_2016$Race_5cat, emr_2016$Gender_3cat)
+```
+
+```{r}
+table(emr_2017$Race_5cat, emr_2017$Gender_3cat)
+```
+
+```{r}
+table(emr_2018$Race_5cat, emr_2018$Gender_3cat)
+```
+
+```{r}
+table(emr_2019$Race_5cat, emr_2019$Gender_3cat)
+```
+
+```{r}
+table(hivpos_2013$Race_5cat, hivpos_2013$Gender_3cat)
+```
+
+```{r}
+table(hivpos_2014$Race_5cat, hivpos_2014$Gender_3cat)
+```
+
+```{r}
+table(hivpos_2015$Race_5cat, hivpos_2015$Gender_3cat)
+```
+
+```{r}
+table(hivpos_2016$Race_5cat, hivpos_2016$Gender_3cat)
+```
+
+```{r}
+table(hivpos_2017$Race_5cat, hivpos_2017$Gender_3cat)
+```
+
+```{r}
+table(hivpos_2018$Race_5cat, hivpos_2018$Gender_3cat)
+```
+
+```{r}
+table(hivpos_2019$Race_5cat, hivpos_2019$Gender_3cat)
+```
+
+### Ethnicity Tables
+
+```{r}
+table(emr_2013$Hispanic, emr_2013$Gender_3cat)
+```
+
+```{r}
+table(emr_2014$Hispanic, emr_2014$Gender_3cat)
+```
+
+```{r}
+table(emr_2015$Hispanic, emr_2015$Gender_3cat)
+```
+
+```{r}
+table(emr_2016$Hispanic, emr_2016$Gender_3cat)
+```
+
+```{r}
+table(emr_2017$Hispanic, emr_2017$Gender_3cat)
+```
+
+```{r}
+table(emr_2018$Hispanic, emr_2018$Gender_3cat)
+```
+
+```{r}
+table(emr_2019$Hispanic, emr_2019$Gender_3cat)
+```
+
+```{r}
+table(hivpos_2013$Hispanic, hivpos_2013$Gender_3cat)
+```
+
+```{r}
+table(hivpos_2014$Hispanic, hivpos_2014$Gender_3cat)
+```
+
+```{r}
+table(hivpos_2015$Hispanic, hivpos_2015$Gender_3cat)
+```
+
+```{r}
+table(hivpos_2016$Hispanic, hivpos_2016$Gender_3cat)
+```
+
+```{r}
+table(hivpos_2017$Hispanic, hivpos_2017$Gender_3cat)
+```
+
+```{r}
+table(hivpos_2018$Hispanic, hivpos_2018$Gender_3cat)
+```
+
+```{r}
+table(hivpos_2019$Hispanic, hivpos_2019$Gender_3cat)
+```
+
+### Viral Suppression Tables
+
+```{r}
+nvs_2013 <- hivpos_2013[which(hivpos_2013$HIV_Viral_Suppressed == "Not Virally Suppressed (200+ copies)"),]
+nvs_2014 <- hivpos_2014[which(hivpos_2014$HIV_Viral_Suppressed == "Not Virally Suppressed (200+ copies)"),]
+nvs_2015 <- hivpos_2015[which(hivpos_2015$HIV_Viral_Suppressed == "Not Virally Suppressed (200+ copies)"),]
+nvs_2016 <- hivpos_2016[which(hivpos_2016$HIV_Viral_Suppressed == "Not Virally Suppressed (200+ copies)"),]
+nvs_2017 <- hivpos_2017[which(hivpos_2017$HIV_Viral_Suppressed == "Not Virally Suppressed (200+ copies)"),]
+nvs_2018 <- hivpos_2018[which(hivpos_2018$HIV_Viral_Suppressed == "Not Virally Suppressed (200+ copies)"),]
+nvs_2019 <- hivpos_2019[which(hivpos_2019$HIV_Viral_Suppressed == "Not Virally Suppressed (200+ copies)"),]
+```
+
+```{r}
+table(nvs_2013$Race_5cat, nvs_2013$Gender_3cat)
+```
+
+```{r}
+table(nvs_2014$Race_5cat, nvs_2014$Gender_3cat)
+```
+
+```{r}
+table(nvs_2015$Race_5cat, nvs_2015$Gender_3cat)
+```
+
+```{r}
+table(nvs_2016$Race_5cat, nvs_2016$Gender_3cat)
+```
+
+```{r}
+table(nvs_2017$Race_5cat, nvs_2017$Gender_3cat)
+```
+
+```{r}
+table(nvs_2018$Race_5cat, nvs_2018$Gender_3cat)
+```
+
+```{r}
+table(nvs_2019$Race_5cat, nvs_2019$Gender_3cat)
+```
+```{r}
+table(nvs_2013$Hispanic, nvs_2013$Gender_3cat)
+```
+
+```{r}
+table(nvs_2014$Hispanic, nvs_2014$Gender_3cat)
+```
+
+```{r}
+table(nvs_2015$Hispanic, nvs_2015$Gender_3cat)
+```
+
+```{r}
+table(nvs_2016$Hispanic, nvs_2016$Gender_3cat)
+```
+
+```{r}
+table(nvs_2017$Hispanic, nvs_2017$Gender_3cat)
+```
+
+```{r}
+table(nvs_2018$Hispanic, nvs_2018$Gender_3cat)
+```
+
+```{r}
+table(nvs_2019$Hispanic, nvs_2019$Gender_3cat)
+```
+
+
+## Figures
+
+```{r}
+emr <- mutate(emr, GenderID = case_when(
+  Gender == 'Male/FtM' ~ 0,
+  Gender == 'Female/MtF' ~ 1,
+  Gender == 'Nonbinary/Genderqueer' & SAB == 'Female' ~ 2,
+  Gender == 'Nonbinary/Genderqueer' & SAB == 'Male' ~ 3,
+  Gender == 'Another Gender Identity' & SAB == 'Female' ~ 2,
+  Gender == 'Another Gender Identity' & SAB == 'Male' ~ 3
+))
+
+emr$GenderID <- factor(emr$GenderID)
+levels(emr$GenderID) <- c('Male', 'Female', 'Nonbinary AFAB', 'Nonbinary AMAB')
+table(emr$GenderID)
+```
+
+```{r}
+table(emr$HIV_Status)
+```
+
+```{r}
+emr <- mutate(emr, RaceCat = case_when(
+  RaceID == "White" & Hispanic == "Non-Hispanic" ~ 0,
+  RaceID == "White" & Hispanic == "Hispanic" ~ 1,
+  RaceID == "Black/African American" & Hispanic == "Non-Hispanic" ~ 2,
+  RaceID == "Black/African American" & Hispanic == "Hispanic" ~ 3,
+  RaceID == "Asian" & Hispanic == "Non-Hispanic" ~ 4,
+  RaceID == "Asian" & Hispanic == "Hispanic" ~ 5,
+  RaceID == "Multiracial" & Hispanic == "Non-Hispanic" ~ 6,
+  RaceID == "Multiracial" & Hispanic == "Hispanic" ~ 7,
+  RaceID == "Another Race" & Hispanic == "Non-Hispanic" | RaceID == "American Indian/Alaska Native" & Hispanic == "Non-Hispanic" | RaceID == "Native Hawaiian/Pacific Islander" & Hispanic == "Non-Hispanic" ~ 8,
+  RaceID == "Another Race" & Hispanic == "Hispanic" | RaceID == "American Indian/Alaska Native" & Hispanic == "Hispanic" | RaceID == "Native Hawaiian/Pacific Islander" & Hispanic == "Hispanic" ~ 9
+))
+
+emr$RaceCat <- factor(emr$RaceCat)
+
+levels(emr$RaceCat) <- c("White, Non-Hispanic", "White, Hispanic", "Black/African American, Non-Hispanic", "Black/African American, Hispanic", "Asian, Non-Hispanic", "Asian, Hispanic", "Multiracial, Non-Hispanic", "Multiracial, Hispanic", "Another Race, Non-Hispanic", "Another Race, Hispanic")
+
+table(emr$RaceCat)
+```
+
+```{r}
+emr$HIV_Positive <- ifelse(emr$HIV_Status == "HIV-Positive", 1, 0)
+
+table(emr$HIV_Positive)
+```
+
+```{r}
+TM_data <- emr[which(emr$GenderID == "Male"),]
+TF_data <- emr[which(emr$GenderID == "Female"),]
+NAMAB_data <- emr[which(emr$GenderID == "Nonbinary AMAB"),]
+NAFAB_data <- emr[which(emr$GenderID == "Nonbinary AFAB"),]
+```
+
+```{r}
+table(TM_data$HIV_Positive, TM_data$RaceCat)
+```
+```{r}
+NAMAB_data_2013 <- NAMAB_data[which(NAMAB_data$Year == 2013),]
+
+table(NAMAB_data_2013$RaceCat, NAMAB_data_2013$HIV_Positive)
+```
+
+```{r}
+library(sqldf)
+
+TM_2013 <- sqldf("SELECT Year, RaceCat, 100*(sum(HIV_Positive)/count(RaceCat)) as Percent_HIV_Pos FROM TM_data WHERE Year = 2013 GROUP BY RaceCat")
+TM_2014 <- sqldf("SELECT Year, RaceCat, 100*(sum(HIV_Positive)/count(RaceCat)) as Percent_HIV_Pos FROM TM_data WHERE Year = 2014 GROUP BY RaceCat")
+TM_2015 <- sqldf("SELECT Year, RaceCat, 100*(sum(HIV_Positive)/count(RaceCat)) as Percent_HIV_Pos FROM TM_data WHERE Year = 2015 GROUP BY RaceCat")
+TM_2016 <- sqldf("SELECT Year, RaceCat, 100*(sum(HIV_Positive)/count(RaceCat)) as Percent_HIV_Pos FROM TM_data WHERE Year = 2016 GROUP BY RaceCat")
+TM_2017 <- sqldf("SELECT Year, RaceCat, 100*(sum(HIV_Positive)/count(RaceCat)) as Percent_HIV_Pos FROM TM_data WHERE Year = 2017 GROUP BY RaceCat")
+TM_2018 <- sqldf("SELECT Year, RaceCat, 100*(sum(HIV_Positive)/count(RaceCat)) as Percent_HIV_Pos FROM TM_data WHERE Year = 2018 GROUP BY RaceCat")
+TM_2019 <- sqldf("SELECT Year, RaceCat, 100*(sum(HIV_Positive)/count(RaceCat)) as Percent_HIV_Pos FROM TM_data WHERE Year = 2019 GROUP BY RaceCat")
+
+TM_updated <- rbind(TM_2013, TM_2014, TM_2015, TM_2016, TM_2017, TM_2018, TM_2019)
+TM_updated <- TM_updated[which(!is.na(TM_updated$RaceCat)),]
+```
+
+
+```{r}
+library(ggplot2)
+
+TM_updated %>%
+  ggplot(aes(x=as.factor(Year), y=Percent_HIV_Pos, group=RaceCat, color=RaceCat)) +
+  ggtitle("Transmasculine") +
+  labs(y = "Percentage HIV-Positive", x = "Years") +
+  geom_line() +
+  geom_point(aes(shape=RaceCat))
+```
+
+
+```{r}
+library(sqldf)
+
+TF_2013 <- sqldf("SELECT Year, RaceCat, 100*(sum(HIV_Positive)/count(RaceCat)) as Percent_HIV_Pos FROM TF_data WHERE Year = 2013 GROUP BY RaceCat")
+TF_2014 <- sqldf("SELECT Year, RaceCat, 100*(sum(HIV_Positive)/count(RaceCat)) as Percent_HIV_Pos FROM TF_data WHERE Year = 2014 GROUP BY RaceCat")
+TF_2015 <- sqldf("SELECT Year, RaceCat, 100*(sum(HIV_Positive)/count(RaceCat)) as Percent_HIV_Pos FROM TF_data WHERE Year = 2015 GROUP BY RaceCat")
+TF_2016 <- sqldf("SELECT Year, RaceCat, 100*(sum(HIV_Positive)/count(RaceCat)) as Percent_HIV_Pos FROM TF_data WHERE Year = 2016 GROUP BY RaceCat")
+TF_2017 <- sqldf("SELECT Year, RaceCat, 100*(sum(HIV_Positive)/count(RaceCat)) as Percent_HIV_Pos FROM TF_data WHERE Year = 2017 GROUP BY RaceCat")
+TF_2018 <- sqldf("SELECT Year, RaceCat, 100*(sum(HIV_Positive)/count(RaceCat)) as Percent_HIV_Pos FROM TF_data WHERE Year = 2018 GROUP BY RaceCat")
+TF_2019 <- sqldf("SELECT Year, RaceCat, 100*(sum(HIV_Positive)/count(RaceCat)) as Percent_HIV_Pos FROM TF_data WHERE Year = 2019 GROUP BY RaceCat")
+
+TF_updated <- rbind(TF_2013, TF_2014, TF_2015, TF_2016, TF_2017, TF_2018, TF_2019)
+TF_updated <- TF_updated[which(!is.na(TF_updated$RaceCat)),]
+```
+
+
+```{r}
+library(ggplot2)
+
+TF_updated %>%
+  ggplot(aes(x=as.factor(Year), y=Percent_HIV_Pos, group=RaceCat, color=RaceCat)) +
+  ggtitle("Transfeminine") +
+  labs(y = "Percentage HIV-Positive", x = "Years") +
+  geom_line() +
+  geom_point(aes(shape=RaceCat))
+```
+
+```{r}
+library(sqldf)
+
+NAFAB_2013 <- sqldf("SELECT Year, RaceCat, 100*(sum(HIV_Positive)/count(RaceCat)) as Percent_HIV_Pos FROM NAFAB_data WHERE Year = 2013 GROUP BY RaceCat")
+NAFAB_2014 <- sqldf("SELECT Year, RaceCat, 100*(sum(HIV_Positive)/count(RaceCat)) as Percent_HIV_Pos FROM NAFAB_data WHERE Year = 2014 GROUP BY RaceCat")
+NAFAB_2015 <- sqldf("SELECT Year, RaceCat, 100*(sum(HIV_Positive)/count(RaceCat)) as Percent_HIV_Pos FROM NAFAB_data WHERE Year = 2015 GROUP BY RaceCat")
+NAFAB_2016 <- sqldf("SELECT Year, RaceCat, 100*(sum(HIV_Positive)/count(RaceCat)) as Percent_HIV_Pos FROM NAFAB_data WHERE Year = 2016 GROUP BY RaceCat")
+NAFAB_2017 <- sqldf("SELECT Year, RaceCat, 100*(sum(HIV_Positive)/count(RaceCat)) as Percent_HIV_Pos FROM NAFAB_data WHERE Year = 2017 GROUP BY RaceCat")
+NAFAB_2018 <- sqldf("SELECT Year, RaceCat, 100*(sum(HIV_Positive)/count(RaceCat)) as Percent_HIV_Pos FROM NAFAB_data WHERE Year = 2018 GROUP BY RaceCat")
+NAFAB_2019 <- sqldf("SELECT Year, RaceCat, 100*(sum(HIV_Positive)/count(RaceCat)) as Percent_HIV_Pos FROM NAFAB_data WHERE Year = 2019 GROUP BY RaceCat")
+
+NAFAB_updated <- rbind(NAFAB_2013, NAFAB_2014, NAFAB_2015, NAFAB_2016, NAFAB_2017, NAFAB_2018, NAFAB_2019)
+NAFAB_updated <- NAFAB_updated[which(!is.na(NAFAB_updated$RaceCat)),]
+```
+
+
+```{r}
+library(ggplot2)
+
+NAFAB_updated %>%
+  ggplot(aes(x=as.factor(Year), y=Percent_HIV_Pos, group=RaceCat, color=RaceCat)) +
+  ggtitle("Nonbinary AFAB") +
+  labs(y = "Percentage HIV-Positive", x = "Years") +
+  geom_line() +
+  geom_point(aes(shape=RaceCat))
+```
+
+```{r}
+library(sqldf)
+
+NAMAB_2013 <- sqldf("SELECT Year, RaceCat, 100*(sum(HIV_Positive)/count(RaceCat)) as Percent_HIV_Pos FROM NAMAB_data WHERE Year = 2013 GROUP BY RaceCat")
+NAMAB_2014 <- sqldf("SELECT Year, RaceCat, 100*(sum(HIV_Positive)/count(RaceCat)) as Percent_HIV_Pos FROM NAMAB_data WHERE Year = 2014 GROUP BY RaceCat")
+NAMAB_2015 <- sqldf("SELECT Year, RaceCat, 100*(sum(HIV_Positive)/count(RaceCat)) as Percent_HIV_Pos FROM NAMAB_data WHERE Year = 2015 GROUP BY RaceCat")
+NAMAB_2016 <- sqldf("SELECT Year, RaceCat, 100*(sum(HIV_Positive)/count(RaceCat)) as Percent_HIV_Pos FROM NAMAB_data WHERE Year = 2016 GROUP BY RaceCat")
+NAMAB_2017 <- sqldf("SELECT Year, RaceCat, 100*(sum(HIV_Positive)/count(RaceCat)) as Percent_HIV_Pos FROM NAMAB_data WHERE Year = 2017 GROUP BY RaceCat")
+NAMAB_2018 <- sqldf("SELECT Year, RaceCat, 100*(sum(HIV_Positive)/count(RaceCat)) as Percent_HIV_Pos FROM NAMAB_data WHERE Year = 2018 GROUP BY RaceCat")
+NAMAB_2019 <- sqldf("SELECT Year, RaceCat, 100*(sum(HIV_Positive)/count(RaceCat)) as Percent_HIV_Pos FROM NAMAB_data WHERE Year = 2019 GROUP BY RaceCat")
+
+NAMAB_updated <- rbind(NAMAB_2013, NAMAB_2014, NAMAB_2015, NAMAB_2016, NAMAB_2017, NAMAB_2018, NAMAB_2019)
+NAMAB_updated <- NAMAB_updated[which(!is.na(NAMAB_updated$RaceCat)),]
+```
+
+
+```{r}
+library(ggplot2)
+
+NAMAB_updated %>%
+  ggplot(aes(x=as.factor(Year), y=Percent_HIV_Pos, group=RaceCat, color=RaceCat)) +
+  ggtitle("Nonbinary AMAB") +
+  labs(y = "Percentage HIV-Positive", x = "Years") +
+  geom_line() +
+  geom_point(aes(shape=RaceCat))
+```
+
+
+```{r}
+library(ggplot2)
+library(wesanderson)
+library(ggpubr)
+
+TM_plot <- TM_updated %>%
+  ggplot(aes(x=as.factor(Year), y=Percent_HIV_Pos, group=RaceCat, color=RaceCat)) +
+  ggtitle("Transmasculine") +
+  labs(y = "Percentage HIV-Positive", x = "Years", col = "Race and Ethnicity", shape = "Race and Ethnicity") +
+  geom_line() +
+  geom_point(aes(shape=RaceCat))
+
+TF_plot <- TF_updated %>%
+  ggplot(aes(x=as.factor(Year), y=Percent_HIV_Pos, group=RaceCat, color=RaceCat)) +
+  ggtitle("Transfeminine") +
+  labs(y = "Percentage HIV-Positive", x = "Years", col = "Race and Ethnicity", shape = "Race and Ethnicity") +
+  geom_line() +
+  geom_point(aes(shape=RaceCat))
+
+NAFAB_plot <- NAFAB_updated %>%
+  ggplot(aes(x=as.factor(Year), y=Percent_HIV_Pos, group=RaceCat, color=RaceCat)) +
+  ggtitle("Nonbinary AFAB") +
+  labs(y = "Percentage HIV-Positive", x = "Years", col = "Race and Ethnicity", shape = "Race and Ethnicity") +
+  geom_line() +
+  geom_point(aes(shape=RaceCat))
+
+NAMAB_plot <- NAMAB_updated %>%
+  ggplot(aes(x=as.factor(Year), y=Percent_HIV_Pos, group=RaceCat, color=RaceCat)) +
+  ggtitle("Nonbinary AMAB") +
+  labs(y = "Percentage HIV-Positive", x = "Years", col = "Race and Ethnicity", shape = "Race and Ethnicity") +
+  geom_line() +
+  geom_point(aes(shape=RaceCat))
+
+ggarrange(TM_plot, TF_plot, NAFAB_plot, NAMAB_plot, common.legend = TRUE, legend = "bottom", ncol=2, nrow=2)
+
+```
+
+
+## Descriptive Statistics (2013)
+
+```{r}
+emr_2013 <- emr[which(emr$Year == 2013),]
+```
+
+```{r}
+mean(emr_2013$YearsofCare)
+sd(emr_2013$YearsofCare)
+```
+
+```{r}
+emr_2013_hivneg <- emr_2013[which(emr_2013$HIV_Status == "HIV-Negative"),]
+emr_2013_hivpos <- emr_2013[which(emr_2013$HIV_Status == "HIV-Positive"),]
+```
+
+```{r}
+mean(emr_2013_hivneg$YearsofCare)
+sd(emr_2013_hivneg$YearsofCare)
+```
+
+```{r}
+mean(emr_2013_hivpos$YearsofCare)
+sd(emr_2013_hivpos$YearsofCare)
+```
+
+```{r}
+emr_2013 <- mutate(emr_2013, AgeCat = case_when(
+  (18 <= Age) & (Age <= 24) ~ 0,
+  (25 <= Age) & (Age <= 30) ~ 1,
+  (31 <= Age) & (Age <= 40) ~ 2,
+  (41 <= Age) & (Age <= 50) ~ 3,
+  (Age >= 51) & (Age <= 100) ~ 4))
+
+emr_2013$AgeCat <- factor(emr_2013$AgeCat, levels = c(0, 1, 2, 3, 4), 
+                                 labels = c("18-24 years", "25-30 years", "31-40 years",
+                                            "41-50 years", "51+ years"))
+table(emr_2013$AgeCat)
+```
+
+```{r}
+emr_2013$HIV_Positive <- NA
+emr_2013$HIV_Positive[emr_2013$HIV_Status == 'HIV-Positive'] <- 1
+emr_2013$HIV_Positive[emr_2013$HIV_Status == 'HIV-Negative'] <- 0
+
+table(emr_2013$HIV_Positive)
+```
+
+```{r}
+table(emr_2013$Gender)
+```
+
+```{r}
+emr_2013 <- mutate(emr_2013, GenderID = case_when(
+  Gender == 'Male/FtM' ~ 0,
+  Gender == 'Female/MtF' ~ 1,
+  Gender == 'Nonbinary/Genderqueer' & SAB == 'Female' ~ 2,
+  Gender == 'Nonbinary/Genderqueer' & SAB == 'Male' ~ 3,
+  Gender == 'Another Gender Identity' & SAB == 'Female' ~ 2,
+  Gender == 'Another Gender Identity' & SAB == 'Male' ~ 3
+))
+
+emr_2013$GenderID <- factor(emr_2013$GenderID)
+levels(emr_2013$GenderID) <- c('Male', 'Female', 'Nonbinary AFAB', 'Nonbinary AMAB')
+table(emr_2013$GenderID)
+```
+
+```{r}
+emr_2013$Gender_2cat <- NA
+emr_2013$Gender_2cat[emr_2013$GenderID == 'Male' | emr_2013$GenderID == 'Nonbinary AFAB'] <- 0
+emr_2013$Gender_2cat[emr_2013$GenderID == 'Female' | emr_2013$GenderID == 'Nonbinary AMAB'] <- 1
+
+emr_2013$Gender_2cat <- factor(emr_2013$Gender_2cat)
+levels(emr_2013$Gender_2cat) <- c("Transmasculine", "Transfeminine")
+table(emr_2013$Gender_2cat)
+```
+
+```{r}
+emr_2013 <- mutate(emr_2013, Race_5cat = case_when(
+  RaceID == 'White' ~ 0,
+  RaceID == 'Asian' ~ 1,
+  RaceID == 'Black/African American' ~ 2,
+  RaceID == 'Multiracial' ~ 3,
+  RaceID == 'American Indian/Alaska Native' | RaceID == 'Native Hawaiian/Pacific Islander' | RaceID == 'Another Race' ~ 4
+))
+
+emr_2013$Race_5cat <- factor(emr_2013$Race_5cat)
+levels(emr_2013$Race_5cat) <- c("White", "Asian", "Black/African American", "Multiracial", "Another Race")
+table(emr_2013$Race_5cat)
+```
+
+```{r}
+emr_2013 <- mutate(emr_2013, HispanicRC = case_when(
+  Hispanic == "Non-Hispanic" ~ 0,
+  Hispanic == "Hispanic" ~ 1
+))
+
+emr_2013$HispanicRC <- factor(emr_2013$HispanicRC)
+levels(emr_2013$HispanicRC) <- c("No", "Yes")
+table(emr_2013$HispanicRC)
+```
+
+```{r}
+emr_2013 <- mutate(emr_2013, Insurance = case_when(
+  Insure == "Private Insurance" ~ 0,
+  Insure == "Public Insurance" ~ 1,
+  Insure == "Uninsured" ~ 2
+))
+
+emr_2013$Insurance <- factor(emr_2013$Insurance)
+levels(emr_2013$Insurance) <- c("Private", "Public", "Uninsured")
+table(emr_2013$Insurance)
+```
+
+```{r}
+emr_2013 <- mutate(emr_2013, FPL = case_when(
+  FPL_Level == "0-99%" ~ 0,
+  FPL_Level == "100-199%" ~ 1,
+  FPL_Level == "200-299%" ~ 2,
+  FPL_Level == "300%+" ~ 3
+))
+
+emr_2013$FPL <- factor(emr_2013$FPL)
+levels(emr_2013$FPL) <- c("0-99%", "100-199%", "200-299%", "300%+")
+
+table(emr_2013$FPL)
+```
+
+```{r}
+emr_2013$On_Hormones <- ifelse(emr_2013$On_Blocker == 1 | emr_2013$On_Antiandrogen == 1 | emr_2013$On_Estrogen == 1 | emr_2013$On_Progesterone == 1 | emr_2013$On_Testosterone == 1, 1, 0)
+
+emr_2013$On_Hormones <- factor(emr_2013$On_Hormones)
+levels(emr_2013$On_Hormones) <- c('Not on hormones', 'On hormones')
+table(emr_2013$On_Hormones)
+```
+
+```{r}
+emr_2013$STI_Pos_Anogenital <- ifelse(emr_2013$STI_Pos_Cervical == 1 | emr_2013$STI_Pos_Rectal == 1 | emr_2013$STI_Pos_Urethral == 1, 1, 0)
+emr_2013$STI_Pos_Anogenital <- factor(emr_2013$STI_Pos_Anogenital)
+levels(emr_2013$STI_Pos_Anogenital) <- c("No", "Yes")
+table(emr_2013$STI_Pos_Anogenital)
+```
+
+```{r}
+emr_2013$Alcohol_Abuse <- factor(emr_2013$Alcohol_Abuse)
+levels(emr_2013$Alcohol_Abuse) <- c("No", "Yes")
+
+table(emr_2013$Alcohol_Abuse)
+```
+
+```{r}
+emr_2013$PHQ_Clinical <- factor(emr_2013$PHQ_Clinical)
+levels(emr_2013$PHQ_Clinical) <- c("No", "Yes")
+
+table(emr_2013$PHQ_Clinical)
+```
+
+```{r}
+emr_2013$On_PrEP <- factor(emr_2013$On_PrEP)
+levels(emr_2013$On_PrEP) <- c("No", "Yes")
+
+table(emr_2013$On_PrEP)
+```
+
+```{r}
+emr_2013$HIV_Viral_Suppressed[emr_2013$HIV_Status == "HIV-Negative"] <- NA
+```
+
+```{r}
+library(tableone)
+
+demos_2013 <- CreateTableOne(vars = c("Site", "Age", "AgeCat", "GenderID", "RaceID", "Hispanic", "Insure", "FPL_Level", "On_Hormones", "Alcohol_Abuse", "PHQ_Clinical", "On_PrEP", "STI_Pos_Anogenital", "HIV_Viral_Suppressed", "YearsofCare"), strata = "HIV_Status", data = emr_2013, includeNA = TRUE, addOverall = TRUE)
+
+demos_2013
+```
+
+```{r}
+library(tableone)
+
+demos_2013_2 <- CreateTableOne(vars = c("Site", "Age", "AgeCat", "GenderID", "RaceID", "Hispanic", "Insure", "FPL_Level", "Alcohol_Abuse", "PHQ_Clinical", "On_PrEP", "STI_Pos_Anogenital", "HIV_Status", "HIV_Viral_Suppressed", "YearsofCare"), strata = "On_Hormones", data = emr_2013, includeNA = TRUE, addOverall = TRUE)
+
+demos_2013_2
+```
+
+```{r}
+median(emr_2013$Age, na.rm = TRUE)
+IQR(emr_2013$Age, na.rm = TRUE)
+```
+
+```{r}
+library(dplyr)
+
+emr_2013 %>%
+  group_by(On_Hormones) %>%
+  summarize(age_median = median(Age, na.rm = TRUE),
+            age_iqr = IQR(Age, na.rm = TRUE))
+```
+
+```{r}
+median(emr_2013$YearsofCare, na.rm = TRUE)
+IQR(emr_2013$YearsofCare, na.rm = TRUE)
+```
+
+```{r}
+library(dplyr)
+
+emr_2013 %>%
+  group_by(On_Hormones) %>%
+  summarize(YearsofCare_median = median(YearsofCare, na.rm = TRUE),
+            YearsofCare_iqr = IQR(YearsofCare, na.rm = TRUE))
+```
+
+## Descriptive Statistic Tests
+
+```{r}
+chisq.test(emr_2013$Site, emr_2013$HIV_Status, simulate.p.value = TRUE)
+```
+
+```{r}
+chisq.test(emr_2013$AgeCat, emr_2013$HIV_Status, simulate.p.value = TRUE)
+```
+
+```{r}
+chisq.test(emr_2013$GenderID, emr_2013$HIV_Status, simulate.p.value = TRUE)
+```
+
+```{r}
+chisq.test(emr_2013$RaceID, emr_2013$HIV_Status, simulate.p.value = TRUE)
+```
+
+```{r}
+chisq.test(emr_2013$Hispanic, emr_2013$HIV_Status, simulate.p.value = TRUE)
+```
+
+```{r}
+chisq.test(emr_2013$Insure, emr_2013$HIV_Status, simulate.p.value = TRUE)
+```
+
+```{r}
+chisq.test(emr_2013$FPL_Level, emr_2013$HIV_Status, simulate.p.value = TRUE)
+```
+
+```{r}
+chisq.test(emr_2013$On_Hormones, emr_2013$HIV_Status, simulate.p.value = TRUE)
+```
+
+```{r}
+chisq.test(emr_2013$Alcohol_Abuse, emr_2013$HIV_Status, simulate.p.value = TRUE)
+```
+
+```{r}
+chisq.test(emr_2013$PHQ_Clinical, emr_2013$HIV_Status, simulate.p.value = TRUE)
+```
+
+```{r}
+chisq.test(emr_2013$On_PrEP, emr_2013$HIV_Status, simulate.p.value = TRUE)
+```
+
+```{r}
+chisq.test(emr_2013$STI_Pos_Anogenital, emr_2013$HIV_Status, simulate.p.value = TRUE)
+```
+
+```{r}
+median(emr_2013$Age, na.rm = TRUE)
+IQR(emr_2013$Age, na.rm = TRUE)
+```
+
+```{r}
+library(dplyr)
+
+emr_2013 %>%
+  group_by(HIV_Status) %>%
+  summarize(age_median = median(Age, na.rm = TRUE),
+            age_iqr = IQR(Age, na.rm = TRUE))
+```
+
+```{r}
+median(emr_2013$YearsofCare, na.rm = TRUE)
+IQR(emr_2013$YearsofCare, na.rm = TRUE)
+```
+
+```{r}
+library(dplyr)
+
+emr_2013 %>%
+  group_by(HIV_Status) %>%
+  summarize(YearsofCare_median = median(YearsofCare, na.rm = TRUE),
+            YearsofCare_iqr = IQR(YearsofCare, na.rm = TRUE))
+```
+
+```{r}
+t.test(Age ~ HIV_Status, var.equal = FALSE, data = emr_2013)
+```
+
+```{r}
+t.test(YearsofCare ~ HIV_Status, var.equal = FALSE, data = emr_2013)
+```
+
+```{r}
+wilcox.test(Age ~ HIV_Status, data = emr_2013, exact = FALSE)
+```
+
+```{r}
+options(scipen=999)
+wilcox.test(YearsofCare ~ HIV_Status, data = emr_2013, exact = FALSE)
+```
+
+## Descriptive Statistics (2019)
+
+```{r}
+emr_2019 <- emr[which(emr$Year == 2019),]
+```
+
+```{r}
+mean(emr_2019$YearsofCare)
+sd(emr_2019$YearsofCare)
+```
+
+```{r}
+emr_2019_hivneg <- emr_2019[which(emr_2019$HIV_Status == "HIV-Negative"),]
+emr_2019_hivpos <- emr_2019[which(emr_2019$HIV_Status == "HIV-Positive"),]
+```
+
+```{r}
+mean(emr_2019_hivneg$YearsofCare)
+sd(emr_2019_hivneg$YearsofCare)
+```
+
+```{r}
+mean(emr_2019_hivpos$YearsofCare)
+sd(emr_2019_hivpos$YearsofCare)
+```
+
+```{r}
+emr_2019 <- mutate(emr_2019, AgeCat = case_when(
+  (18 <= Age) & (Age <= 24) ~ 0,
+  (25 <= Age) & (Age <= 30) ~ 1,
+  (31 <= Age) & (Age <= 40) ~ 2,
+  (41 <= Age) & (Age <= 50) ~ 3,
+  (Age >= 51) & (Age <= 100) ~ 4))
+
+emr_2019$AgeCat <- factor(emr_2019$AgeCat, levels = c(0, 1, 2, 3, 4), 
+                                 labels = c("18-24 years", "25-30 years", "31-40 years",
+                                            "41-50 years", "51+ years"))
+table(emr_2019$AgeCat)
+```
+
+```{r}
+emr_2019$HIV_Positive <- NA
+emr_2019$HIV_Positive[emr_2019$HIV_Status == 'HIV-Positive'] <- 1
+emr_2019$HIV_Positive[emr_2019$HIV_Status == 'HIV-Negative'] <- 0
+
+table(emr_2019$HIV_Positive)
+```
+
+```{r}
+table(emr_2019$Gender)
+```
+
+```{r}
+emr_2019 <- mutate(emr_2019, GenderID = case_when(
+  Gender == 'Male/FtM' ~ 0,
+  Gender == 'Female/MtF' ~ 1,
+  Gender == 'Nonbinary/Genderqueer' & SAB == 'Female' ~ 2,
+  Gender == 'Nonbinary/Genderqueer' & SAB == 'Male' ~ 3,
+  Gender == 'Another Gender Identity' & SAB == 'Female' ~ 2,
+  Gender == 'Another Gender Identity' & SAB == 'Male' ~ 3
+))
+
+emr_2019$GenderID <- factor(emr_2019$GenderID)
+levels(emr_2019$GenderID) <- c('Male', 'Female', 'Nonbinary AFAB', 'Nonbinary AMAB')
+table(emr_2019$GenderID)
+```
+
+```{r}
+emr_2019$Gender_2cat <- NA
+emr_2019$Gender_2cat[emr_2019$GenderID == 'Male' | emr_2019$GenderID == 'Nonbinary AFAB'] <- 0
+emr_2019$Gender_2cat[emr_2019$GenderID == 'Female' | emr_2019$GenderID == 'Nonbinary AMAB'] <- 1
+
+emr_2019$Gender_2cat <- factor(emr_2019$Gender_2cat)
+levels(emr_2019$Gender_2cat) <- c("Transmasculine", "Transfeminine")
+table(emr_2019$Gender_2cat)
+```
+
+```{r}
+emr_2019 <- mutate(emr_2019, Race_5cat = case_when(
+  RaceID == 'White' ~ 0,
+  RaceID == 'Asian' ~ 1,
+  RaceID == 'Black/African American' ~ 2,
+  RaceID == 'Multiracial' ~ 3,
+  RaceID == 'American Indian/Alaska Native' | RaceID == 'Native Hawaiian/Pacific Islander' | RaceID == 'Another Race' ~ 4
+))
+
+emr_2019$Race_5cat <- factor(emr_2019$Race_5cat)
+levels(emr_2019$Race_5cat) <- c("White", "Asian", "Black/African American", "Multiracial", "Another Race")
+table(emr_2019$Race_5cat)
+```
+
+```{r}
+emr_2019 <- mutate(emr_2019, HispanicRC = case_when(
+  Hispanic == "Non-Hispanic" ~ 0,
+  Hispanic == "Hispanic" ~ 1
+))
+
+emr_2019$HispanicRC <- factor(emr_2019$HispanicRC)
+levels(emr_2019$HispanicRC) <- c("No", "Yes")
+table(emr_2019$HispanicRC)
+```
+
+```{r}
+emr_2019 <- mutate(emr_2019, Insurance = case_when(
+  Insure == "Private Insurance" ~ 0,
+  Insure == "Public Insurance" ~ 1,
+  Insure == "Uninsured" ~ 2
+))
+
+emr_2019$Insurance <- factor(emr_2019$Insurance)
+levels(emr_2019$Insurance) <- c("Private", "Public", "Uninsured")
+table(emr_2019$Insurance)
+```
+
+```{r}
+emr_2019 <- mutate(emr_2019, FPL = case_when(
+  FPL_Level == "0-99%" ~ 0,
+  FPL_Level == "100-199%" ~ 1,
+  FPL_Level == "200-299%" ~ 2,
+  FPL_Level == "300%+" ~ 3
+))
+
+emr_2019$FPL <- factor(emr_2019$FPL)
+levels(emr_2019$FPL) <- c("0-99%", "100-199%", "200-299%", "300%+")
+
+table(emr_2019$FPL)
+```
+
+```{r}
+emr_2019$On_Hormones <- ifelse(emr_2019$On_Blocker == 1 | emr_2019$On_Antiandrogen == 1 | emr_2019$On_Estrogen == 1 | emr_2019$On_Progesterone == 1 | emr_2019$On_Testosterone == 1, 1, 0)
+
+emr_2019$On_Hormones <- factor(emr_2019$On_Hormones)
+levels(emr_2019$On_Hormones) <- c('Not on hormones', 'On hormones')
+table(emr_2019$On_Hormones)
+```
+
+```{r}
+emr_2019$STI_Pos_Anogenital <- ifelse(emr_2019$STI_Pos_Cervical == 1 | emr_2019$STI_Pos_Rectal == 1 | emr_2019$STI_Pos_Urethral == 1, 1, 0)
+emr_2019$STI_Pos_Anogenital <- factor(emr_2019$STI_Pos_Anogenital)
+levels(emr_2019$STI_Pos_Anogenital) <- c("No", "Yes")
+table(emr_2019$STI_Pos_Anogenital)
+```
+
+```{r}
+emr_2019$Alcohol_Abuse <- factor(emr_2019$Alcohol_Abuse)
+levels(emr_2019$Alcohol_Abuse) <- c("No", "Yes")
+
+table(emr_2019$Alcohol_Abuse)
+```
+
+```{r}
+emr_2019$PHQ_Clinical <- factor(emr_2019$PHQ_Clinical)
+levels(emr_2019$PHQ_Clinical) <- c("No", "Yes")
+
+table(emr_2019$PHQ_Clinical)
+```
+
+```{r}
+emr_2019$On_PrEP <- factor(emr_2019$On_PrEP)
+levels(emr_2019$On_PrEP) <- c("No", "Yes")
+
+table(emr_2019$On_PrEP)
+```
+
+```{r}
+emr_2019$HIV_Viral_Suppressed[emr_2019$HIV_Status == "HIV-Negative"] <- NA
+```
+
+```{r}
+library(tableone)
+
+demos_2019 <- CreateTableOne(vars = c("Site", "Age", "AgeCat", "GenderID", "RaceID", "Hispanic", "Insure", "FPL_Level", "On_Hormones", "Alcohol_Abuse", "PHQ_Clinical", "On_PrEP", "STI_Pos_Anogenital", "HIV_Viral_Suppressed", "YearsofCare"), strata = "HIV_Status", data = emr_2019, includeNA = TRUE, addOverall = TRUE)
+
+demos_2019
+```
+
+```{r}
+library(tableone)
+
+demos_2019_2 <- CreateTableOne(vars = c("Site", "Age", "AgeCat", "GenderID", "RaceID", "Hispanic", "Insure", "FPL_Level", "Alcohol_Abuse", "PHQ_Clinical", "On_PrEP", "STI_Pos_Anogenital", "HIV_Status", "HIV_Viral_Suppressed", "YearsofCare"), strata = "On_Hormones", data = emr_2019, includeNA = TRUE, addOverall = TRUE)
+
+demos_2019_2
+```
+
+```{r}
+median(emr_2019$Age, na.rm = TRUE)
+IQR(emr_2019$Age, na.rm = TRUE)
+```
+
+```{r}
+library(dplyr)
+
+emr_2019 %>%
+  group_by(On_Hormones) %>%
+  summarize(age_median = median(Age, na.rm = TRUE),
+            age_iqr = IQR(Age, na.rm = TRUE))
+```
+
+```{r}
+median(emr_2019$YearsofCare, na.rm = TRUE)
+IQR(emr_2019$YearsofCare, na.rm = TRUE)
+```
+
+```{r}
+library(dplyr)
+
+emr_2019 %>%
+  group_by(On_Hormones) %>%
+  summarize(YearsofCare_median = median(YearsofCare, na.rm = TRUE),
+            YearsofCare_iqr = IQR(YearsofCare, na.rm = TRUE))
+```
+
+## Descriptive Statistic Tests
+
+```{r}
+chisq.test(emr_2019$Site, emr_2019$HIV_Status, simulate.p.value = TRUE)
+```
+
+```{r}
+chisq.test(emr_2019$AgeCat, emr_2019$HIV_Status, simulate.p.value = TRUE)
+```
+
+```{r}
+chisq.test(emr_2019$GenderID, emr_2019$HIV_Status, simulate.p.value = TRUE)
+```
+
+```{r}
+chisq.test(emr_2019$RaceID, emr_2019$HIV_Status, simulate.p.value = TRUE)
+```
+
+```{r}
+chisq.test(emr_2019$Hispanic, emr_2019$HIV_Status, simulate.p.value = TRUE)
+```
+
+```{r}
+chisq.test(emr_2019$Insure, emr_2019$HIV_Status, simulate.p.value = TRUE)
+```
+
+```{r}
+chisq.test(emr_2019$FPL_Level, emr_2019$HIV_Status, simulate.p.value = TRUE)
+```
+
+```{r}
+chisq.test(emr_2019$On_Hormones, emr_2019$HIV_Status, simulate.p.value = TRUE)
+```
+
+```{r}
+chisq.test(emr_2019$Alcohol_Abuse, emr_2019$HIV_Status, simulate.p.value = TRUE)
+```
+
+```{r}
+chisq.test(emr_2019$PHQ_Clinical, emr_2019$HIV_Status, simulate.p.value = TRUE)
+```
+
+```{r}
+chisq.test(emr_2019$On_PrEP, emr_2019$HIV_Status, simulate.p.value = TRUE)
+```
+
+```{r}
+chisq.test(emr_2019$STI_Pos_Anogenital, emr_2019$HIV_Status, simulate.p.value = TRUE)
+```
+
+```{r}
+median(emr_2019$Age, na.rm = TRUE)
+IQR(emr_2019$Age, na.rm = TRUE)
+```
+
+```{r}
+library(dplyr)
+
+emr_2019 %>%
+  group_by(HIV_Status) %>%
+  summarize(age_median = median(Age, na.rm = TRUE),
+            age_iqr = IQR(Age, na.rm = TRUE))
+```
+
+```{r}
+median(emr_2019$YearsofCare, na.rm = TRUE)
+IQR(emr_2019$YearsofCare, na.rm = TRUE)
+```
+
+```{r}
+library(dplyr)
+
+emr_2019 %>%
+  group_by(HIV_Status) %>%
+  summarize(YearsofCare_median = median(YearsofCare, na.rm = TRUE),
+            YearsofCare_iqr = IQR(YearsofCare, na.rm = TRUE))
+```
+
+```{r}
+t.test(Age ~ HIV_Status, var.equal = FALSE, data = emr_2019)
+```
+
+```{r}
+t.test(YearsofCare ~ HIV_Status, var.equal = FALSE, data = emr_2019)
+```
+
+```{r}
+wilcox.test(Age ~ HIV_Status, data = emr_2019, exact = FALSE)
+```
+
+```{r}
+wilcox.test(YearsofCare ~ HIV_Status, data = emr_2019, exact = FALSE)
+```
+
+## Non-Imputed Models
+
+```{r}
+emr$Obs_Year <- NA
+emr$Obs_Year[emr$Year == 2013] <- 0
+emr$Obs_Year[emr$Year == 2014] <- 1
+emr$Obs_Year[emr$Year == 2015] <- 2
+emr$Obs_Year[emr$Year == 2016] <- 3
+emr$Obs_Year[emr$Year == 2017] <- 4
+emr$Obs_Year[emr$Year == 2018] <- 5
+emr$Obs_Year[emr$Year == 2019] <- 6
+
+table(emr$Obs_Year)
+```
+
+```{r}
+emr <- mutate(emr, AgeCat = case_when(
+  (18 <= Age) & (Age <= 24) ~ 0,
+  (25 <= Age) & (Age <= 30) ~ 1,
+  (31 <= Age) & (Age <= 40) ~ 2,
+  (41 <= Age) & (Age <= 50) ~ 3,
+  (Age >= 51) & (Age <= 100) ~ 4))
+
+emr$AgeCat <- factor(emr$AgeCat, levels = c(0, 1, 2, 3, 4), 
+                                 labels = c("18-24 years", "25-30 years", "31-40 years",
+                                            "41-50 years", "51+ years"))
+table(emr$AgeCat)
+```
+
+```{r}
+emr$HIV_Positive <- NA
+emr$HIV_Positive[emr$HIV_Status == 'HIV-Positive'] <- 1
+emr$HIV_Positive[emr$HIV_Status == 'HIV-Negative'] <- 0
+
+table(emr$HIV_Positive)
+```
+
+```{r}
+table(emr$Gender)
+```
+
+```{r}
+emr <- mutate(emr, GenderID = case_when(
+  Gender == 'Male/FtM' ~ 0,
+  Gender == 'Female/MtF' ~ 1,
+  Gender == 'Nonbinary/Genderqueer' & SAB == 'Female' ~ 2,
+  Gender == 'Nonbinary/Genderqueer' & SAB == 'Male' ~ 3,
+  Gender == 'Another Gender Identity' & SAB == 'Female' ~ 2,
+  Gender == 'Another Gender Identity' & SAB == 'Male' ~ 3
+))
+
+emr$GenderID <- factor(emr$GenderID)
+levels(emr$GenderID) <- c('Male', 'Female', 'Nonbinary AFAB', 'Nonbinary AMAB')
+table(emr$GenderID)
+```
+
+```{r}
+emr$Gender_2cat <- NA
+emr$Gender_2cat[emr$GenderID == 'Male' | emr$GenderID == 'Nonbinary AFAB'] <- 0
+emr$Gender_2cat[emr$GenderID == 'Female' | emr$GenderID == 'Nonbinary AMAB'] <- 1
+
+emr$Gender_2cat <- factor(emr$Gender_2cat)
+levels(emr$Gender_2cat) <- c("Transmasculine", "Transfeminine")
+table(emr$Gender_2cat)
+```
+
+```{r}
+emr <- mutate(emr, Race_5cat = case_when(
+  RaceID == 'White' ~ 0,
+  RaceID == 'Asian' ~ 1,
+  RaceID == 'Black/African American' ~ 2,
+  RaceID == 'Multiracial' ~ 3,
+  RaceID == 'American Indian/Alaska Native' | RaceID == 'Native Hawaiian/Pacific Islander' | RaceID == 'Another Race' ~ 4
+))
+
+emr$Race_5cat <- factor(emr$Race_5cat)
+levels(emr$Race_5cat) <- c("White", "Asian", "Black/African American", "Multiracial", "Another Race")
+table(emr$Race_5cat)
+```
+
+```{r}
+emr <- mutate(emr, HispanicRC = case_when(
+  Hispanic == "Non-Hispanic" ~ 0,
+  Hispanic == "Hispanic" ~ 1
+))
+
+emr$HispanicRC <- factor(emr$HispanicRC)
+levels(emr$HispanicRC) <- c("No", "Yes")
+table(emr$HispanicRC)
+```
+
+```{r}
+emr <- mutate(emr, Insurance = case_when(
+  Insure == "Private Insurance" ~ 0,
+  Insure == "Public Insurance" ~ 1,
+  Insure == "Uninsured" ~ 2
+))
+
+emr$Insurance <- factor(emr$Insurance)
+levels(emr$Insurance) <- c("Private", "Public", "Uninsured")
+table(emr$Insurance)
+```
+
+```{r}
+emr <- mutate(emr, FPL = case_when(
+  FPL_Level == "0-99%" ~ 0,
+  FPL_Level == "100-199%" ~ 1,
+  FPL_Level == "200-299%" ~ 2,
+  FPL_Level == "300%+" ~ 3
+))
+
+emr$FPL <- factor(emr$FPL)
+levels(emr$FPL) <- c("0-99%", "100-199%", "200-299%", "300%+")
+
+table(emr$FPL)
+```
+
+```{r}
+emr$On_Hormones <- ifelse(emr$On_Blocker == 1 | emr$On_Antiandrogen == 1 | emr$On_Estrogen == 1 | emr$On_Progesterone == 1 | emr$On_Testosterone == 1, 1, 0)
+
+emr$On_Hormones <- factor(emr$On_Hormones)
+levels(emr$On_Hormones) <- c('Not on hormones', 'On hormones')
+table(emr$On_Hormones)
+```
+
+```{r}
+emr$STI_Pos_Anogenital <- ifelse(emr$STI_Pos_Cervical == 1 | emr$STI_Pos_Rectal == 1 | emr$STI_Pos_Urethral == 1, 1, 0)
+emr$STI_Pos_Anogenital <- factor(emr$STI_Pos_Anogenital)
+levels(emr$STI_Pos_Anogenital) <- c("No", "Yes")
+table(emr$STI_Pos_Anogenital)
+```
+
+```{r}
+emr$Alcohol_Abuse <- factor(emr$Alcohol_Abuse)
+levels(emr$Alcohol_Abuse) <- c("No", "Yes")
+
+table(emr$Alcohol_Abuse)
+```
+
+```{r}
+emr$PHQ_Clinical <- factor(emr$PHQ_Clinical)
+levels(emr$PHQ_Clinical) <- c("No", "Yes")
+
+table(emr$PHQ_Clinical)
+```
+
+```{r}
+emr$On_PrEP <- factor(emr$On_PrEP)
+levels(emr$On_PrEP) <- c("No", "Yes")
+
+table(emr$On_PrEP)
+```
+
+## Complete Case Analysis
+
+```{r}
+emr$Obs_Year <- NA
+emr$Obs_Year[emr$Year == 2013] <- 0
+emr$Obs_Year[emr$Year == 2014] <- 1
+emr$Obs_Year[emr$Year == 2015] <- 2
+emr$Obs_Year[emr$Year == 2016] <- 3
+emr$Obs_Year[emr$Year == 2017] <- 4
+emr$Obs_Year[emr$Year == 2018] <- 5
+emr$Obs_Year[emr$Year == 2019] <- 6
+
+table(emr$Obs_Year)
+```
+
+```{r}
+emr <- mutate(emr, AgeCat = case_when(
+  (18 <= Age) & (Age <= 24) ~ 0,
+  (25 <= Age) & (Age <= 30) ~ 1,
+  (31 <= Age) & (Age <= 40) ~ 2,
+  (41 <= Age) & (Age <= 50) ~ 3,
+  (Age >= 51) & (Age <= 100) ~ 4))
+
+emr$AgeCat <- factor(emr$AgeCat, levels = c(0, 1, 2, 3, 4), 
+                                 labels = c("18-24 years", "25-30 years", "31-40 years",
+                                            "41-50 years", "51+ years"))
+table(emr$AgeCat)
+```
+
+```{r}
+emr$HIV_Positive <- NA
+emr$HIV_Positive[emr$HIV_Status == 'HIV-Positive'] <- 1
+emr$HIV_Positive[emr$HIV_Status == 'HIV-Negative'] <- 0
+
+table(emr$HIV_Positive)
+```
+
+```{r}
+table(emr$Gender)
+```
+
+```{r}
+emr <- mutate(emr, GenderID = case_when(
+  Gender == 'Male/FtM' ~ 0,
+  Gender == 'Female/MtF' ~ 1,
+  Gender == 'Nonbinary/Genderqueer' & SAB == 'Female' ~ 2,
+  Gender == 'Nonbinary/Genderqueer' & SAB == 'Male' ~ 3,
+  Gender == 'Another Gender Identity' & SAB == 'Female' ~ 2,
+  Gender == 'Another Gender Identity' & SAB == 'Male' ~ 3
+))
+
+emr$GenderID <- factor(emr$GenderID)
+levels(emr$GenderID) <- c('Male', 'Female', 'Nonbinary AFAB', 'Nonbinary AMAB')
+table(emr$GenderID)
+```
+
+```{r}
+emr$Gender_2cat <- NA
+emr$Gender_2cat[emr$GenderID == 'Male' | emr$GenderID == 'Nonbinary AFAB'] <- 0
+emr$Gender_2cat[emr$GenderID == 'Female' | emr$GenderID == 'Nonbinary AMAB'] <- 1
+
+emr$Gender_2cat <- factor(emr$Gender_2cat)
+levels(emr$Gender_2cat) <- c("Transmasculine", "Transfeminine")
+table(emr$Gender_2cat)
+```
+
+```{r}
+emr <- mutate(emr, Race_5cat = case_when(
+  RaceID == 'White' ~ 0,
+  RaceID == 'Asian' ~ 1,
+  RaceID == 'Black/African American' ~ 2,
+  RaceID == 'Multiracial' ~ 3,
+  RaceID == 'American Indian/Alaska Native' | RaceID == 'Native Hawaiian/Pacific Islander' | RaceID == 'Another Race' ~ 4
+))
+
+emr$Race_5cat <- factor(emr$Race_5cat)
+levels(emr$Race_5cat) <- c("White", "Asian", "Black/African American", "Multiracial", "Another Race")
+table(emr$Race_5cat)
+```
+
+```{r}
+emr <- mutate(emr, HispanicRC = case_when(
+  Hispanic == "Non-Hispanic" ~ 0,
+  Hispanic == "Hispanic" ~ 1
+))
+
+emr$HispanicRC <- factor(emr$HispanicRC)
+levels(emr$HispanicRC) <- c("No", "Yes")
+table(emr$HispanicRC)
+```
+
+```{r}
+emr <- mutate(emr, Insurance = case_when(
+  Insure == "Private Insurance" ~ 0,
+  Insure == "Public Insurance" ~ 1,
+  Insure == "Uninsured" ~ 2
+))
+
+emr$Insurance <- factor(emr$Insurance)
+levels(emr$Insurance) <- c("Private", "Public", "Uninsured")
+table(emr$Insurance)
+```
+
+```{r}
+emr <- mutate(emr, FPL = case_when(
+  FPL_Level == "0-99%" ~ 0,
+  FPL_Level == "100-199%" ~ 1,
+  FPL_Level == "200-299%" ~ 2,
+  FPL_Level == "300%+" ~ 3
+))
+
+emr$FPL <- factor(emr$FPL)
+levels(emr$FPL) <- c("0-99%", "100-199%", "200-299%", "300%+")
+
+table(emr$FPL)
+```
+
+```{r}
+emr$On_Hormones <- ifelse(emr$On_Blocker == 1 | emr$On_Antiandrogen == 1 | emr$On_Estrogen == 1 | emr$On_Progesterone == 1 | emr$On_Testosterone == 1, 1, 0)
+
+emr$On_Hormones <- factor(emr$On_Hormones)
+levels(emr$On_Hormones) <- c('Not on hormones', 'On hormones')
+table(emr$On_Hormones)
+```
+
+```{r}
+emr$STI_Pos_Anogenital <- ifelse(emr$STI_Pos_Cervical == 1 | emr$STI_Pos_Rectal == 1 | emr$STI_Pos_Urethral == 1, 1, 0)
+emr$STI_Pos_Anogenital <- factor(emr$STI_Pos_Anogenital)
+levels(emr$STI_Pos_Anogenital) <- c("No", "Yes")
+table(emr$STI_Pos_Anogenital)
+```
+
+```{r}
+emr$Alcohol_Abuse <- factor(emr$Alcohol_Abuse)
+levels(emr$Alcohol_Abuse) <- c("No", "Yes")
+
+table(emr$Alcohol_Abuse)
+```
+
+```{r}
+emr$PHQ_Clinical <- factor(emr$PHQ_Clinical)
+levels(emr$PHQ_Clinical) <- c("No", "Yes")
+
+table(emr$PHQ_Clinical)
+```
+
+```{r}
+emr$On_PrEP <- factor(emr$On_PrEP)
+levels(emr$On_PrEP) <- c("No", "Yes")
+
+table(emr$On_PrEP)
+```
+
+```{r}
+library(dplyr)
+
+
+missing_check <- select(emr, c('Obs_Year', 'ID', 'YearsofCare', 'On_Hormones', 'Site', 'AgeCat', 'GenderID', 'Race_5cat', 'HispanicRC', 'Insurance', 'FPL', 'Alcohol_Abuse', 'PHQ_Clinical', 'STI_Pos_Anogenital', 'HIV_Positive'))
+```
+
+```{r}
+missing_check$N_Miss <- rowSums(is.na(missing_check))
+
+missing_check$AnyMiss <- ifelse(missing_check$N_Miss >= 1, 1, 0)
+
+table(missing_check$AnyMiss)
+```
+
+```{r}
+emr$HIV_NonVS <- NA
+emr$HIV_NonVS[emr$HIV_Viral_Suppressed == 'Not Virally Suppressed (200+ copies)'] <- 1
+emr$HIV_NonVS[emr$HIV_Viral_Suppressed == 'Virally Suppressed (<200 copies)'] <- 0
+
+table(emr$HIV_NonVS)
+```
+
+```{r}
+emr$Gender_3cat <- NA
+emr$Gender_3cat[emr$GenderID == "Male"] <- 0
+emr$Gender_3cat[emr$GenderID == "Female"] <- 1
+emr$Gender_3cat[emr$GenderID == "Nonbinary AFAB" | emr$GenderID == "Nonbinary AMAB"] <- 2
+
+emr$Gender_3cat <- factor(emr$Gender_3cat)
+levels(emr$Gender_3cat) <- c("Transmasculine", "Transfeminine", "Nonbinary")
+
+table(emr$Gender_3cat)
+```
+
+```{r}
+library(dplyr)
+
+
+missing_check_2 <- select(emr, c('Obs_Year', 'ID', 'YearsofCare', 'On_Hormones', 'Site', 'AgeCat', 'Gender_3cat', 'Race_5cat', 'HispanicRC', 'Insurance', 'FPL', 'Alcohol_Abuse', 'PHQ_Clinical', 'STI_Pos_Anogenital', 'HIV_Status', 'HIV_NonVS'))
+```
+
+```{r}
+missing_check_vs <- missing_check_2[which(missing_check_2$HIV_Status == 'HIV-Positive'),]
+```
+
+
+```{r}
+missing_check_vs$N_Miss <- rowSums(is.na(missing_check_vs))
+
+missing_check_vs$AnyMiss <- ifelse(missing_check_vs$N_Miss >= 1, 1, 0)
+
+table(missing_check_vs$AnyMiss)
+```
+
+
+
+## Multiple Imputation with Chained Equations
+
+```{r}
+#Establishing imputation methods and an initial predictor matrix for the final imputation model
+
+library(mice)
+
+init = mice(emr, maxit=0, seed=0829) 
+meth = init$method
+
+meth[c("ID")]=""
+meth[c("Year")]=""
+meth[c("Site")]=""
+meth[c("Age")]="cart"
+meth[c("SAB")]="cart"
+meth[c("Gender")]="cart"
+meth[c("RaceID")]="cart"
+meth[c("Hispanic")]="cart"
+meth[c("Insure")]="cart"
+meth[c("FPL_Level")]="cart"
+
+meth[c("On_Blocker")]=""
+meth[c("On_Antiandrogen")]=""
+meth[c("On_Estrogen")]=""
+meth[c("On_Progesterone")]=""
+meth[c("On_Testosterone")]=""
+
+meth[c("HIV_Status")]=""
+meth[c("HIV_Viral_Suppressed")]=""
+
+meth[c("On_PrEP")]=""
+meth[c("STI_Pos_DX")]=""
+meth[c("STI_Pos_Cervical")]=""
+meth[c("STI_Pos_Urethral")]=""
+meth[c("STI_Pos_Rectal")]=""
+meth[c("STI_Pos_Pharyngeal")]=""
+
+meth[c("PHQ_Clinical")]="cart"
+meth[c("Alcohol_Abuse")]="cart"
+meth[c("Depression")]="cart"
+meth[c("Anxiety")]="cart"
+meth[c("PsychMeds")]="cart"
+meth[c("YearsofCare")] = "cart"
+
+predM = init$predictorMatrix
+```
+
+```{r}
+#Editing the predictor matrix to remove IDs and HIV viral suppression from the imputation model
+predM[,1] <- 0
+predM[,17] <- 0
+predM[,29] <- 0
+```
+
+```{r, eval = FALSE, echo = FALSE}
+#Applying multiple imputation with chained equations to the wide cohort dataset.
+library(mice)
+
+imputed_data <- mice(emr, method=meth, predictorMatrix = predM, m = 10, seed = 0829)
+```
+
+```{r}
+long_imputed_dataset <- complete(imputed_data, action="long", include=FALSE)
+```
+
+```{r}
+library(miceadds)
+
+#Checking missingness in the imputed datasets
+data.frame(prop_miss(long_imputed_dataset))
+```
+
+## Creating Dataset List
+
+```{r}
+long_imputed_dataset$Obs_Year <- NA
+long_imputed_dataset$Obs_Year[long_imputed_dataset$Year == 2013] <- 0
+long_imputed_dataset$Obs_Year[long_imputed_dataset$Year == 2014] <- 1
+long_imputed_dataset$Obs_Year[long_imputed_dataset$Year == 2015] <- 2
+long_imputed_dataset$Obs_Year[long_imputed_dataset$Year == 2016] <- 3
+long_imputed_dataset$Obs_Year[long_imputed_dataset$Year == 2017] <- 4
+long_imputed_dataset$Obs_Year[long_imputed_dataset$Year == 2018] <- 5
+long_imputed_dataset$Obs_Year[long_imputed_dataset$Year == 2019] <- 6
+
+table(long_imputed_dataset$Obs_Year)
+```
+
+```{r}
+long_imputed_dataset <- mutate(long_imputed_dataset, AgeCat = case_when(
+  (18 <= Age) & (Age <= 24) ~ 0,
+  (25 <= Age) & (Age <= 30) ~ 1,
+  (31 <= Age) & (Age <= 40) ~ 2,
+  (41 <= Age) & (Age <= 50) ~ 3,
+  (Age >= 51) & (Age <= 100) ~ 4))
+
+long_imputed_dataset$AgeCat <- factor(long_imputed_dataset$AgeCat, levels = c(0, 1, 2, 3, 4), 
+                                 labels = c("18-24 years", "25-30 years", "31-40 years",
+                                            "41-50 years", "51+ years"))
+table(long_imputed_dataset$AgeCat)
+```
+
+```{r}
+long_imputed_dataset$HIV_Positive <- NA
+long_imputed_dataset$HIV_Positive[long_imputed_dataset$HIV_Status == 'HIV-Positive'] <- 1
+long_imputed_dataset$HIV_Positive[long_imputed_dataset$HIV_Status == 'HIV-Negative'] <- 0
+
+table(long_imputed_dataset$HIV_Positive)
+```
+
+```{r}
+table(long_imputed_dataset$Gender)
+```
+
+```{r}
+long_imputed_dataset <- mutate(long_imputed_dataset, GenderID = case_when(
+  Gender == 'Male/FtM' ~ 0,
+  Gender == 'Female/MtF' ~ 1,
+  Gender == 'Nonbinary/Genderqueer' & SAB == 'Female' ~ 2,
+  Gender == 'Nonbinary/Genderqueer' & SAB == 'Male' ~ 3,
+  Gender == 'Another Gender Identity' & SAB == 'Female' ~ 2,
+  Gender == 'Another Gender Identity' & SAB == 'Male' ~ 3
+))
+
+long_imputed_dataset$GenderID <- factor(long_imputed_dataset$GenderID)
+levels(long_imputed_dataset$GenderID) <- c('Male', 'Female', 'Nonbinary AFAB', 'Nonbinary AMAB')
+table(long_imputed_dataset$GenderID)
+```
+
+```{r}
+long_imputed_dataset$Gender_2cat <- NA
+long_imputed_dataset$Gender_2cat[long_imputed_dataset$GenderID == 'Male' | long_imputed_dataset$GenderID == 'Nonbinary AFAB'] <- 0
+long_imputed_dataset$Gender_2cat[long_imputed_dataset$GenderID == 'Female' | long_imputed_dataset$GenderID == 'Nonbinary AMAB'] <- 1
+
+long_imputed_dataset$Gender_2cat <- factor(long_imputed_dataset$Gender_2cat)
+levels(long_imputed_dataset$Gender_2cat) <- c("Transmasculine", "Transfeminine")
+table(long_imputed_dataset$Gender_2cat)
+```
+
+```{r}
+long_imputed_dataset <- mutate(long_imputed_dataset, Race_5cat = case_when(
+  RaceID == 'White' ~ 0,
+  RaceID == 'Asian' ~ 1,
+  RaceID == 'Black/African American' ~ 2,
+  RaceID == 'Multiracial' ~ 3,
+  RaceID == 'American Indian/Alaska Native' | RaceID == 'Native Hawaiian/Pacific Islander' | RaceID == 'Another Race' ~ 4
+))
+
+long_imputed_dataset$Race_5cat <- factor(long_imputed_dataset$Race_5cat)
+levels(long_imputed_dataset$Race_5cat) <- c("White", "Asian", "Black/African American", "Multiracial", "Another Race")
+table(long_imputed_dataset$Race_5cat)
+```
+
+```{r}
+long_imputed_dataset <- mutate(long_imputed_dataset, HispanicRC = case_when(
+  Hispanic == "Non-Hispanic" ~ 0,
+  Hispanic == "Hispanic" ~ 1
+))
+
+long_imputed_dataset$HispanicRC <- factor(long_imputed_dataset$HispanicRC)
+levels(long_imputed_dataset$HispanicRC) <- c("No", "Yes")
+table(long_imputed_dataset$HispanicRC)
+```
+
+```{r}
+long_imputed_dataset <- mutate(long_imputed_dataset, Insurance = case_when(
+  Insure == "Private Insurance" ~ 0,
+  Insure == "Public Insurance" ~ 1,
+  Insure == "Uninsured" ~ 2
+))
+
+long_imputed_dataset$Insurance <- factor(long_imputed_dataset$Insurance)
+levels(long_imputed_dataset$Insurance) <- c("Private", "Public", "Uninsured")
+table(long_imputed_dataset$Insurance)
+```
+
+```{r}
+long_imputed_dataset <- mutate(long_imputed_dataset, FPL = case_when(
+  FPL_Level == "0-99%" ~ 0,
+  FPL_Level == "100-199%" ~ 1,
+  FPL_Level == "200-299%" ~ 2,
+  FPL_Level == "300%+" ~ 3
+))
+
+long_imputed_dataset$FPL <- factor(long_imputed_dataset$FPL)
+levels(long_imputed_dataset$FPL) <- c("0-99%", "100-199%", "200-299%", "300%+")
+
+table(long_imputed_dataset$FPL)
+```
+
+```{r}
+long_imputed_dataset$On_Hormones <- ifelse(long_imputed_dataset$On_Blocker == 1 | long_imputed_dataset$On_Antiandrogen == 1 | long_imputed_dataset$On_Estrogen == 1 | long_imputed_dataset$On_Progesterone == 1 | long_imputed_dataset$On_Testosterone == 1, 1, 0)
+
+long_imputed_dataset$On_Hormones <- factor(long_imputed_dataset$On_Hormones)
+levels(long_imputed_dataset$On_Hormones) <- c('Not on hormones', 'On hormones')
+table(long_imputed_dataset$On_Hormones)
+```
+
+```{r}
+long_imputed_dataset$STI_Pos_Anogenital <- ifelse(long_imputed_dataset$STI_Pos_Cervical == 1 | long_imputed_dataset$STI_Pos_Rectal == 1 | long_imputed_dataset$STI_Pos_Urethral == 1, 1, 0)
+long_imputed_dataset$STI_Pos_Anogenital <- factor(long_imputed_dataset$STI_Pos_Anogenital)
+levels(long_imputed_dataset$STI_Pos_Anogenital) <- c("No", "Yes")
+table(long_imputed_dataset$STI_Pos_Anogenital)
+```
+
+```{r}
+long_imputed_dataset$Alcohol_Abuse <- factor(long_imputed_dataset$Alcohol_Abuse)
+levels(long_imputed_dataset$Alcohol_Abuse) <- c("No", "Yes")
+
+table(long_imputed_dataset$Alcohol_Abuse)
+```
+
+```{r}
+long_imputed_dataset$PHQ_Clinical <- factor(long_imputed_dataset$PHQ_Clinical)
+levels(long_imputed_dataset$PHQ_Clinical) <- c("No", "Yes")
+
+table(long_imputed_dataset$PHQ_Clinical)
+```
+
+```{r}
+long_imputed_dataset$On_PrEP <- factor(long_imputed_dataset$On_PrEP)
+levels(long_imputed_dataset$On_PrEP) <- c("No", "Yes")
+
+table(long_imputed_dataset$On_PrEP)
+```
+
+```{r}
+imputed_data_list <- split(long_imputed_dataset, f = long_imputed_dataset$.imp)
+```
+
+## GEE Modeling Across Datasets
+
+```{r}
+library(miceadds)
+
+imputed_mids <- datalist2mids(imputed_data_list)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+HIVPos_care <- with(imputed_mids, exp <- geeglm(HIV_Positive ~ YearsofCare + Obs_Year, family = poisson(link = "log"), 
+                                                   id = ID, waves = Obs_Year, corstr = "exchangeable"))
+
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+HIVPos_care_combined <- pool(HIVPos_care)
+
+options(digits = 3)
+options(scipen = 999)
+
+summary(HIVPos_care_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+HIVPos_site <- with(imputed_mids, exp <- geeglm(HIV_Positive ~ Site + Obs_Year, family = poisson(link = "log"), 
+                                                   id = ID, waves = Obs_Year, corstr = "exchangeable"))
+
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+HIVPos_site_combined <- pool(HIVPos_site)
+
+options(digits = 3)
+options(scipen = 10)
+
+summary(HIVPos_site_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+HIVPos_age <- with(imputed_mids, exp <- geeglm(HIV_Positive ~ Age + Obs_Year, family = poisson(link = "log"), 
+                                                   id = ID, waves = Obs_Year, corstr = "exchangeable"))
+
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+HIVPos_age_combined <- pool(HIVPos_age)
+
+options(digits = 3)
+options(scipen = 999)
+
+summary(HIVPos_age_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+HIVPos_agecat <- with(imputed_mids, exp <- geeglm(HIV_Positive ~ AgeCat + Obs_Year, family = poisson(link = "log"), 
+                                                   id = ID, waves = Obs_Year, corstr = "exchangeable"))
+
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+HIVPos_agecat_combined <- pool(HIVPos_agecat)
+
+options(digits = 3)
+options(scipen = 999)
+
+summary(HIVPos_agecat_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+HIVPos_gender <- with(imputed_mids, exp <- geeglm(HIV_Positive ~ Gender_2cat + Obs_Year, family = poisson(link = "log"), 
+                                                   id = ID, waves = Obs_Year, corstr = "exchangeable"))
+
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+HIVPos_gender_combined <- pool(HIVPos_gender)
+
+options(digits = 3)
+
+summary(HIVPos_gender_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+HIVPos_genderid <- with(imputed_mids, exp <- geeglm(HIV_Positive ~ GenderID + Obs_Year, family = poisson(link = "log"), 
+                                                   id = ID, waves = Obs_Year, corstr = "exchangeable"))
+
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+HIVPos_genderid_combined <- pool(HIVPos_genderid)
+
+options(digits = 3)
+options(scipen = 999)
+
+summary(HIVPos_genderid_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+HIVPos_race <- with(imputed_mids, exp <- geeglm(HIV_Positive ~ Race_5cat + Obs_Year, family = poisson(link = "log"), 
+                                                   id = ID, waves = Obs_Year, corstr = "exchangeable"))
+
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+HIVPos_race_combined <- pool(HIVPos_race)
+
+options(digits = 3)
+options(scipen = 999)
+
+summary(HIVPos_race_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+HIVPos_hispanic <- with(imputed_mids, exp <- geeglm(HIV_Positive ~ HispanicRC + Obs_Year, family = poisson(link = "log"), 
+                                                   id = ID, waves = Obs_Year, corstr = "exchangeable"))
+
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+HIVPos_hispanic_combined <- pool(HIVPos_hispanic)
+
+options(digits = 3)
+options(scipen = 999)
+
+summary(HIVPos_hispanic_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+HIVPos_insurance <- with(imputed_mids, exp <- geeglm(HIV_Positive ~ Insurance + Obs_Year, family = poisson(link = "log"), 
+                                                   id = ID, waves = Obs_Year, corstr = "exchangeable"))
+
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+HIVPos_insurance_combined <- pool(HIVPos_insurance)
+
+options(digits = 3)
+options(scipen = 999)
+
+summary(HIVPos_insurance_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+HIVPos_fpl <- with(imputed_mids, exp <- geeglm(HIV_Positive ~ FPL + Obs_Year, family = poisson(link = "log"), 
+                                                   id = ID, waves = Obs_Year, corstr = "exchangeable"))
+
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+HIVPos_fpl_combined <- pool(HIVPos_fpl)
+
+options(digits = 3)
+options(scipen = 999)
+
+summary(HIVPos_fpl_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+HIVPos_hormones <- with(imputed_mids, exp <- geeglm(HIV_Positive ~ On_Hormones + Obs_Year, family = poisson(link = "log"), 
+                                                   id = ID, waves = Obs_Year, corstr = "exchangeable"))
+
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+HIVPos_hormones_combined <- pool(HIVPos_hormones)
+
+options(digits = 3)
+options(scipen = 999)
+
+summary(HIVPos_hormones_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+HIVPos_alcohol <- with(imputed_mids, exp <- geeglm(HIV_Positive ~ Alcohol_Abuse + Obs_Year, family = poisson(link = "log"), 
+                                                   id = ID, waves = Obs_Year, corstr = "exchangeable"))
+
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+HIVPos_alcohol_combined <- pool(HIVPos_alcohol)
+
+options(digits = 3)
+options(scipen = 999)
+
+summary(HIVPos_alcohol_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+HIVPos_phq <- with(imputed_mids, exp <- geeglm(HIV_Positive ~ PHQ_Clinical + Obs_Year, family = poisson(link = "log"), 
+                                                   id = ID, waves = Obs_Year, corstr = "exchangeable"))
+
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+HIVPos_phq_combined <- pool(HIVPos_phq)
+
+options(digits = 3)
+options(scipen = 999)
+
+summary(HIVPos_phq_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+HIVPos_sti <- with(imputed_mids, exp <- geeglm(HIV_Positive ~ STI_Pos_Anogenital + Obs_Year, family = poisson(link = "log"), 
+                                                   id = ID, waves = Obs_Year, corstr = "exchangeable"))
+
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+HIVPos_sti_combined <- pool(HIVPos_sti)
+
+options(digits = 3)
+options(scipen = 999)
+
+summary(HIVPos_sti_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+##Adjusted Model
+
+```{r}
+library(mice)
+library(geepack)
+
+HIVPos_adjusted <- with(imputed_mids, exp <- geeglm(HIV_Positive ~ YearsofCare + On_Hormones + Site + AgeCat + GenderID + Race_5cat + HispanicRC + Insurance + FPL + Alcohol_Abuse + PHQ_Clinical + STI_Pos_Anogenital + Obs_Year, family = poisson(link = "log"), 
+                                                   id = ID, waves = Obs_Year, corstr = "exchangeable"))
+
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+HIVPos_adjusted_combined <- pool(HIVPos_adjusted)
+
+options(digits = 3)
+options(scipen = 999)
+
+summary(HIVPos_adjusted_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(EValue)
+
+evalue(RR(0.63), lo = 0.56, hi = 0.70, se = 0.05723)
+```
+
+
+# Imputation for HIV-Positive Patients
+
+```{r}
+emr_hivpos <- emr[which(emr$HIV_Status == 'HIV-Positive'),]
+```
+
+```{r}
+#Establishing imputation methods and an initial predictor matrix for the final imputation model
+
+library(mice)
+
+init_hiv = mice(emr_hivpos, maxit=0, seed=0829) 
+meth_hiv = init_hiv$method
+
+meth[c("ID")]=""
+meth[c("Year")]=""
+meth[c("Site")]=""
+meth[c("Age")]="cart"
+meth[c("SAB")]="cart"
+meth[c("Gender")]="cart"
+meth[c("RaceID")]="cart"
+meth[c("Hispanic")]="cart"
+meth[c("Insure")]="cart"
+meth[c("FPL_Level")]="cart"
+
+meth[c("On_Blocker")]=""
+meth[c("On_Antiandrogen")]=""
+meth[c("On_Estrogen")]=""
+meth[c("On_Progesterone")]=""
+meth[c("On_Testosterone")]=""
+
+meth[c("HIV_Status")]=""
+meth[c("HIV_Viral_Suppressed")]=""
+
+meth[c("On_PrEP")]=""
+meth[c("STI_Pos_DX")]=""
+meth[c("STI_Pos_Cervical")]=""
+meth[c("STI_Pos_Urethral")]=""
+meth[c("STI_Pos_Rectal")]=""
+meth[c("STI_Pos_Pharyngeal")]=""
+
+meth[c("PHQ_Clinical")]="cart"
+meth[c("Alcohol_Abuse")]="cart"
+meth[c("Depression")]="cart"
+meth[c("Anxiety")]="cart"
+meth[c("PsychMeds")]="cart"
+meth[c("YearsofCare")] = "cart"
+
+predM_hiv = init_hiv$predictorMatrix
+```
+
+```{r}
+#Editing the predictor matrix to remove IDs and HIV status and HIV viral suppression from the imputation model
+predM_hiv[,1] <- 0
+predM_hiv[,16:17] <- 0
+predM_hiv[,29] <- 0
+```
+
+```{r, eval = FALSE, echo = FALSE}
+#Applying multiple imputation with chained equations to the wide cohort dataset.
+library(mice)
+
+imputed_data_hiv <- mice(emr_hivpos, method=meth_hiv, predictorMatrix = predM_hiv, m = 10, seed = 0829)
+```
+
+```{r}
+long_imputed_dataset_hiv <- complete(imputed_data_hiv, action="long", include=FALSE)
+```
+
+```{r}
+library(miceadds)
+
+#Checking missingness in the imputed datasets
+data.frame(prop_miss(long_imputed_dataset_hiv))
+```
+
+## Creating Dataset List
+
+```{r}
+long_imputed_dataset_hiv$Obs_Year <- NA
+long_imputed_dataset_hiv$Obs_Year[long_imputed_dataset_hiv$Year == 2013] <- 0
+long_imputed_dataset_hiv$Obs_Year[long_imputed_dataset_hiv$Year == 2014] <- 1
+long_imputed_dataset_hiv$Obs_Year[long_imputed_dataset_hiv$Year == 2015] <- 2
+long_imputed_dataset_hiv$Obs_Year[long_imputed_dataset_hiv$Year == 2016] <- 3
+long_imputed_dataset_hiv$Obs_Year[long_imputed_dataset_hiv$Year == 2017] <- 4
+long_imputed_dataset_hiv$Obs_Year[long_imputed_dataset_hiv$Year == 2018] <- 5
+long_imputed_dataset_hiv$Obs_Year[long_imputed_dataset_hiv$Year == 2019] <- 6
+```
+
+```{r}
+long_imputed_dataset_hiv$HIV_NonVS <- NA
+long_imputed_dataset_hiv$HIV_NonVS[long_imputed_dataset_hiv$HIV_Viral_Suppressed == 'Not Virally Suppressed (200+ copies)'] <- 1
+long_imputed_dataset_hiv$HIV_NonVS[long_imputed_dataset_hiv$HIV_Viral_Suppressed == 'Virally Suppressed (<200 copies)'] <- 0
+
+table(long_imputed_dataset_hiv$HIV_NonVS)
+```
+
+```{r}
+long_imputed_dataset_hiv <- mutate(long_imputed_dataset_hiv, AgeCat = case_when(
+  (18 <= Age) & (Age <= 24) ~ 0,
+  (25 <= Age) & (Age <= 30) ~ 1,
+  (31 <= Age) & (Age <= 40) ~ 2,
+  (41 <= Age) & (Age <= 50) ~ 3,
+  (Age >= 51) & (Age <= 100) ~ 4))
+
+long_imputed_dataset_hiv$AgeCat <- factor(long_imputed_dataset_hiv$AgeCat, levels = c(0, 1, 2, 3, 4), 
+                                 labels = c("18-24 years", "25-30 years", "31-40 years",
+                                            "41-50 years", "51+ years"))
+table(long_imputed_dataset_hiv$AgeCat)
+```
+
+```{r}
+table(long_imputed_dataset_hiv$Gender)
+```
+
+```{r}
+long_imputed_dataset_hiv <- mutate(long_imputed_dataset_hiv, GenderID = case_when(
+  Gender == 'Male/FtM' ~ 0,
+  Gender == 'Female/MtF' ~ 1,
+  Gender == 'Nonbinary/Genderqueer' & SAB == 'Female' ~ 2,
+  Gender == 'Nonbinary/Genderqueer' & SAB == 'Male' ~ 3,
+  Gender == 'Another Gender Identity' & SAB == 'Female' ~ 2,
+  Gender == 'Another Gender Identity' & SAB == 'Male' ~ 3
+))
+
+long_imputed_dataset_hiv$GenderID <- factor(long_imputed_dataset_hiv$GenderID)
+levels(long_imputed_dataset_hiv$GenderID) <- c('Male', 'Female', 'Nonbinary AFAB', 'Nonbinary AMAB')
+table(long_imputed_dataset_hiv$GenderID)
+```
+
+```{r}
+long_imputed_dataset_hiv$Gender_2cat <- NA
+long_imputed_dataset_hiv$Gender_2cat[long_imputed_dataset_hiv$GenderID == 'Male' | long_imputed_dataset_hiv$GenderID == 'Nonbinary AFAB'] <- 0
+long_imputed_dataset_hiv$Gender_2cat[long_imputed_dataset_hiv$GenderID == 'Female' | long_imputed_dataset_hiv$GenderID == 'Nonbinary AMAB'] <- 1
+
+long_imputed_dataset_hiv$Gender_2cat <- factor(long_imputed_dataset_hiv$Gender_2cat)
+levels(long_imputed_dataset_hiv$Gender_2cat) <- c("Transmasculine", "Transfeminine")
+table(long_imputed_dataset_hiv$Gender_2cat)
+```
+
+```{r}
+long_imputed_dataset_hiv$Gender_3cat <- NA
+long_imputed_dataset_hiv$Gender_3cat[long_imputed_dataset_hiv$GenderID == "Male"] <- 0
+long_imputed_dataset_hiv$Gender_3cat[long_imputed_dataset_hiv$GenderID == "Female"] <- 1
+long_imputed_dataset_hiv$Gender_3cat[long_imputed_dataset_hiv$GenderID == "Nonbinary AFAB" | long_imputed_dataset_hiv$GenderID == "Nonbinary AMAB"] <- 2
+
+long_imputed_dataset_hiv$Gender_3cat <- factor(long_imputed_dataset_hiv$Gender_3cat)
+levels(long_imputed_dataset_hiv$Gender_3cat) <- c("Transmasculine", "Transfeminine", "Nonbinary")
+
+table(long_imputed_dataset_hiv$Gender_3cat)
+```
+
+```{r}
+long_imputed_dataset_hiv <- mutate(long_imputed_dataset_hiv, Race_5cat = case_when(
+  RaceID == 'White' ~ 0,
+  RaceID == 'Asian' ~ 1,
+  RaceID == 'Black/African American' ~ 2,
+  RaceID == 'Multiracial' ~ 3,
+  RaceID == 'American Indian/Alaska Native' | RaceID == 'Native Hawaiian/Pacific Islander' | RaceID == 'Another Race' ~ 4
+))
+
+long_imputed_dataset_hiv$Race_5cat <- factor(long_imputed_dataset_hiv$Race_5cat)
+levels(long_imputed_dataset_hiv$Race_5cat) <- c("White", "Asian", "Black/African American", "Multiracial", "Another Race")
+table(long_imputed_dataset_hiv$Race_5cat)
+```
+
+```{r}
+long_imputed_dataset_hiv <- mutate(long_imputed_dataset_hiv, HispanicRC = case_when(
+  Hispanic == "Non-Hispanic" ~ 0,
+  Hispanic == "Hispanic" ~ 1
+))
+
+long_imputed_dataset_hiv$HispanicRC <- factor(long_imputed_dataset_hiv$HispanicRC)
+levels(long_imputed_dataset_hiv$HispanicRC) <- c("No", "Yes")
+table(long_imputed_dataset_hiv$HispanicRC)
+```
+
+```{r}
+long_imputed_dataset_hiv <- mutate(long_imputed_dataset_hiv, Insurance = case_when(
+  Insure == "Private Insurance" ~ 0,
+  Insure == "Public Insurance" ~ 1,
+  Insure == "Uninsured" ~ 2
+))
+
+long_imputed_dataset_hiv$Insurance <- factor(long_imputed_dataset_hiv$Insurance)
+levels(long_imputed_dataset_hiv$Insurance) <- c("Private", "Public", "Uninsured")
+table(long_imputed_dataset_hiv$Insurance)
+```
+
+```{r}
+long_imputed_dataset_hiv <- mutate(long_imputed_dataset_hiv, FPL = case_when(
+  FPL_Level == "0-99%" ~ 0,
+  FPL_Level == "100-199%" ~ 1,
+  FPL_Level == "200-299%" ~ 2,
+  FPL_Level == "300%+" ~ 3
+))
+
+long_imputed_dataset_hiv$FPL <- factor(long_imputed_dataset_hiv$FPL)
+levels(long_imputed_dataset_hiv$FPL) <- c("0-99%", "100-199%", "200-299%", "300%+")
+
+table(long_imputed_dataset_hiv$FPL)
+```
+
+```{r}
+long_imputed_dataset_hiv$On_Hormones <- ifelse(long_imputed_dataset_hiv$On_Blocker == 1 | long_imputed_dataset_hiv$On_Antiandrogen == 1 | long_imputed_dataset_hiv$On_Estrogen == 1 | long_imputed_dataset_hiv$On_Progesterone == 1 | long_imputed_dataset_hiv$On_Testosterone == 1, 1, 0)
+
+long_imputed_dataset_hiv$On_Hormones <- factor(long_imputed_dataset_hiv$On_Hormones)
+levels(long_imputed_dataset_hiv$On_Hormones) <- c('Not on hormones', 'On hormones')
+table(long_imputed_dataset_hiv$On_Hormones)
+```
+
+```{r}
+long_imputed_dataset_hiv$STI_Pos_Anogenital <- ifelse(long_imputed_dataset_hiv$STI_Pos_Cervical == 1 | long_imputed_dataset_hiv$STI_Pos_Rectal == 1 | long_imputed_dataset_hiv$STI_Pos_Urethral == 1, 1, 0)
+long_imputed_dataset_hiv$STI_Pos_Anogenital <- factor(long_imputed_dataset_hiv$STI_Pos_Anogenital)
+levels(long_imputed_dataset_hiv$STI_Pos_Anogenital) <- c("No", "Yes")
+table(long_imputed_dataset_hiv$STI_Pos_Anogenital)
+```
+
+```{r}
+long_imputed_dataset_hiv$Alcohol_Abuse <- factor(long_imputed_dataset_hiv$Alcohol_Abuse)
+levels(long_imputed_dataset_hiv$Alcohol_Abuse) <- c("No", "Yes")
+
+table(long_imputed_dataset_hiv$Alcohol_Abuse)
+```
+
+```{r}
+long_imputed_dataset_hiv$PHQ_Clinical <- factor(long_imputed_dataset_hiv$PHQ_Clinical)
+levels(long_imputed_dataset_hiv$PHQ_Clinical) <- c("No", "Yes")
+
+table(long_imputed_dataset_hiv$PHQ_Clinical)
+```
+
+```{r}
+imputed_data_list_hiv <- split(long_imputed_dataset_hiv, f = long_imputed_dataset_hiv$.imp)
+```
+
+## GEE Modeling Across Datasets
+
+```{r}
+library(miceadds)
+
+imputed_mids_hiv <- datalist2mids(imputed_data_list_hiv)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NonVS_care <- with(imputed_mids_hiv, exp <- geeglm(HIV_NonVS ~ YearsofCare + Obs_Year, family = poisson(link = "log"), 
+                                                   id = ID, waves = Obs_Year, corstr = "exchangeable"))
+
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NonVS_care_combined <- pool(NonVS_care)
+
+options(digits = 3)
+
+summary(NonVS_care_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NonVS_site <- with(imputed_mids_hiv, exp <- geeglm(HIV_NonVS ~ Site + Obs_Year, family = poisson(link = "log"), 
+                                                   id = ID, waves = Obs_Year, corstr = "exchangeable"))
+
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NonVS_site_combined <- pool(NonVS_site)
+
+options(digits = 3)
+
+summary(NonVS_site_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NonVS_age <- with(imputed_mids_hiv, exp <- geeglm(HIV_NonVS ~ AgeCat + Obs_Year, family = poisson(link = "log"), 
+                                                   id = ID, waves = Obs_Year, corstr = "exchangeable"))
+
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NonVS_age_combined <- pool(NonVS_age)
+
+options(digits = 3)
+
+summary(NonVS_age_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NonVS_genderid <- with(imputed_mids_hiv, exp <- geeglm(HIV_NonVS ~ GenderID + Obs_Year, family = poisson(link = "log"), 
+                                                   id = ID, waves = Obs_Year, corstr = "exchangeable"))
+
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NonVS_genderid_combined <- pool(NonVS_genderid)
+
+options(digits = 3)
+
+summary(NonVS_genderid_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NonVS_gender <- with(imputed_mids_hiv, exp <- geeglm(HIV_NonVS ~ Gender_2cat + Obs_Year, family = poisson(link = "log"), 
+                                                   id = ID, waves = Obs_Year, corstr = "exchangeable"))
+
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NonVS_gender_combined <- pool(NonVS_gender)
+
+options(digits = 3)
+
+summary(NonVS_gender_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NonVS_gender3 <- with(imputed_mids_hiv, exp <- geeglm(HIV_NonVS ~ Gender_3cat + Obs_Year, family = poisson(link = "log"), 
+                                                   id = ID, waves = Obs_Year, corstr = "exchangeable"))
+
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NonVS_gender3_combined <- pool(NonVS_gender3)
+
+options(digits = 3)
+
+summary(NonVS_gender3_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NonVS_race <- with(imputed_mids_hiv, exp <- geeglm(HIV_NonVS ~ Race_5cat + Obs_Year, family = poisson(link = "log"), 
+                                                   id = ID, waves = Obs_Year, corstr = "exchangeable"))
+
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NonVS_race_combined <- pool(NonVS_race)
+
+options(digits = 3)
+
+summary(NonVS_race_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NonVS_hispanic <- with(imputed_mids_hiv, exp <- geeglm(HIV_NonVS ~ HispanicRC + Obs_Year, family = poisson(link = "log"), 
+                                                   id = ID, waves = Obs_Year, corstr = "exchangeable"))
+
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NonVS_hispanic_combined <- pool(NonVS_hispanic)
+
+options(digits = 3)
+
+summary(NonVS_hispanic_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NonVS_insurance <- with(imputed_mids_hiv, exp <- geeglm(HIV_NonVS ~ Insurance + Obs_Year, family = poisson(link = "log"), 
+                                                   id = ID, waves = Obs_Year, corstr = "exchangeable"))
+
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NonVS_insurance_combined <- pool(NonVS_insurance)
+
+options(digits = 3)
+
+summary(NonVS_insurance_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NonVS_fpl <- with(imputed_mids_hiv, exp <- geeglm(HIV_NonVS ~ FPL + Obs_Year, family = poisson(link = "log"), 
+                                                   id = ID, waves = Obs_Year, corstr = "exchangeable"))
+
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NonVS_fpl_combined <- pool(NonVS_fpl)
+
+options(digits = 3)
+
+summary(NonVS_fpl_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+
+```{r}
+library(mice)
+library(geepack)
+
+NonVS_hormones <- with(imputed_mids_hiv, exp <- geeglm(HIV_NonVS ~ On_Hormones + Obs_Year, family = poisson(link = "log"), 
+                                                   id = ID, waves = Obs_Year, corstr = "exchangeable"))
+
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NonVS_hormones_combined <- pool(NonVS_hormones)
+
+options(digits = 3)
+
+summary(NonVS_hormones_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NonVS_alcohol <- with(imputed_mids_hiv, exp <- geeglm(HIV_NonVS ~ Alcohol_Abuse + Obs_Year, family = poisson(link = "log"), 
+                                                   id = ID, waves = Obs_Year, corstr = "exchangeable"))
+
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NonVS_alcohol_combined <- pool(NonVS_alcohol)
+
+options(digits = 3)
+
+summary(NonVS_alcohol_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+```{r}
+library(mice)
+library(geepack)
+
+NonVS_phq <- with(imputed_mids_hiv, exp <- geeglm(HIV_NonVS ~ PHQ_Clinical + Obs_Year, family = poisson(link = "log"), 
+                                                   id = ID, waves = Obs_Year, corstr = "exchangeable"))
+
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NonVS_phq_combined <- pool(NonVS_phq)
+
+options(digits = 3)
+
+summary(NonVS_phq_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+NonVS_sti <- with(imputed_mids_hiv, exp <- geeglm(HIV_NonVS ~ STI_Pos_Anogenital + Obs_Year, family = poisson(link = "log"), 
+                                                   id = ID, waves = Obs_Year, corstr = "exchangeable"))
+
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NonVS_sti_combined <- pool(NonVS_sti)
+
+options(digits = 3)
+
+summary(NonVS_sti_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+##Adjusted Model
+
+```{r}
+library(mice)
+library(geepack)
+
+NonVS_adjusted <- with(imputed_mids_hiv, exp <- geeglm(HIV_NonVS ~ YearsofCare + On_Hormones + Site + AgeCat + Gender_3cat + Race_5cat + HispanicRC + Insurance + FPL + Alcohol_Abuse + PHQ_Clinical + STI_Pos_Anogenital + Obs_Year, family = poisson(link = "log"), 
+                                                   id = ID, waves = Obs_Year, corstr = "exchangeable"))
+
+```
+
+```{r}
+library(mice)
+
+#Pooling estimates across datasets
+
+NonVS_adjusted_combined <- pool(NonVS_adjusted)
+
+options(digits = 3)
+
+summary(NonVS_adjusted_combined, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(EValue)
+
+evalue(RR(0.64), lo = 0.53, hi = 0.77, se = 0.0979)
+```

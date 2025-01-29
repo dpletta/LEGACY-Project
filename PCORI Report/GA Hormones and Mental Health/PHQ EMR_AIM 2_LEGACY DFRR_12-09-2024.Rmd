@@ -1,0 +1,2228 @@
+---
+title: "PHQ EMR - LEGACY DFRR"
+author: "David R. Pletta, MPH"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#Formatting output for knitr
+knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 50), tidy = TRUE)
+
+#Setting the working directory for the markdown document
+knitr::opts_knit$set(root.dir = "/Users/davidpletta/Library/CloudStorage/Dropbox/ Data Projects (David Pletta)/LEGACY/Reporting - DFRR/DFRR PCORI/AIM II - GA Care and Mental Health/PHQ EMR")
+```
+
+```{r}
+library(tidyverse)
+library(tidylog)
+```
+
+```{r}
+#Importing EMR cohorts from R dataset
+load("EMR Cohorts_LEGACY_07202022.RData")
+```
+
+### Cleaning Sociodemographics
+
+```{r}
+#Removing age observations above 100 years old
+general_cohort$Age[general_cohort$Age > 100] <- NA
+```
+
+```{r}
+table(general_cohort$Age, useNA = "always")
+```
+
+```{r}
+#Creating a categorical variable for age
+general_cohort <- mutate(general_cohort, AgeCat = case_when(
+  (18 <= Age) & (Age <= 24) ~ 0,
+  (25 <= Age) & (Age <= 30) ~ 1,
+  (31 <= Age) & (Age <= 40) ~ 2,
+  (41 <= Age) & (Age <= 50) ~ 3,
+  (Age >= 51) ~ 4))
+
+general_cohort$AgeCat <- factor(general_cohort$AgeCat, levels = c(0, 1, 2, 3, 4), 
+                                 labels = c("18-24 years", "25-30 years", "31-40 years",
+                                            "41-50 years", "51+ years"))
+
+```
+
+```{r}
+general_cohort$On_PrEP <- factor(general_cohort$On_PrEP)
+
+levels(general_cohort$On_PrEP) <- c("No", "Yes")
+
+table(general_cohort$On_PrEP, general_cohort$Year)
+```
+
+```{r}
+general_cohort <- mutate(general_cohort, Gender = case_when(
+  GenderID == "Female" ~ 0,
+  GenderID == "Male" ~ 1,
+  (GenderID == "Nonbinary") & (Sex_at_Birth == "Female") ~ 2,
+  (GenderID == "Nonbinary") & (Sex_at_Birth == "Male") ~ 3
+))
+
+general_cohort$Gender <- factor(general_cohort$Gender)
+
+levels(general_cohort$Gender) <- c("Female", "Male", "Nonbinary AFAB", "Nonbinary AMAB")
+
+table(general_cohort$Gender)
+
+prop.table(table(general_cohort$Gender))
+```
+
+```{r}
+general_cohort <- mutate(general_cohort, HIV_Risk = case_when(
+  (HIV_Status == 0) & (On_PrEP == "No") ~ 0,
+  (HIV_Status == 0) & (On_PrEP == "Yes") ~ 1,
+  (HIV_Status == 1) & (HIV_Suppressed == "<200 copies") ~ 2,
+  (HIV_Status == 1) & (HIV_Suppressed == "200+ copies") ~ 3
+))
+
+general_cohort$HIV_Risk <- factor(general_cohort$HIV_Risk)
+
+levels(general_cohort$HIV_Risk) <- c("HIV- & Not on PrEP", "HIV- & On PrEP", 
+                                     "HIV+ & Virally Suppressed", 
+                                     "HIV+ & Non-Virally Suppressed")
+```
+
+```{r}
+table(general_cohort$HIV_Risk)
+
+prop.table(table(general_cohort$HIV_Risk))
+```
+
+```{r}
+general_cohort$HIV_Status <- factor(general_cohort$HIV_Status)
+
+levels(general_cohort$HIV_Status) <- c("HIV-", "HIV+")
+
+table(general_cohort$HIV_Status)
+```
+
+```{r}
+general_cohort$PHQ_Clinical <- factor(general_cohort$PHQ_Clinical)
+
+levels(general_cohort$PHQ_Clinical) <- c("No", "Yes")
+
+table(general_cohort$PHQ_Clinical, useNA = "always")
+```
+
+## Calculating Years in Cohort
+
+```{r}
+library(sqldf)
+
+cohort_years_data <- sqldf('SELECT ID, count(ID) as cohort_years FROM general_cohort GROUP BY ID ORDER BY ID')
+```
+
+```{r}
+table(cohort_years_data$cohort_years)
+```
+
+```{r}
+general_cohort_revised <- sqldf('SELECT a.*, b.cohort_years FROM general_cohort as a LEFT JOIN cohort_years_data as b ON a.ID = b.ID')
+```
+
+```{r}
+general_cohort <- general_cohort_revised
+```
+
+## Restricting to Those with PHQ Data
+
+```{r}
+table(general_cohort$PHQ_Clinical, useNA = "always")
+```
+
+```{r}
+general_cohort_restricted <- general_cohort[which(!is.na(general_cohort$PHQ_Clinical)),]
+```
+
+```{r}
+table(general_cohort_restricted$Site)
+```
+
+## Examining Missingness in Restricted Cohort
+
+```{r}
+library(tidyverse)
+library(dplyr)
+
+general_cohort_restricted_impmodel <- general_cohort_restricted[c("ID", "Year", "Site", "AgeCat", "Gender", "Race", "Ethnicity", "Insurance", "FPL_Level",
+                                                                 "On_Hormones", "On_PrEP", "HIV_Status", "HIV_Suppressed", "cohort_years", "PHQ_Clinical")]
+
+general_cohort_restricted_impmodel_2016 <- general_cohort_restricted_impmodel[which(general_cohort_restricted_impmodel$Year == 2016),]
+```
+
+```{r}
+library(miceadds)
+
+#Checking missingness in the imputed datasets
+data.frame(prop_miss(general_cohort_restricted_impmodel_2016))
+```
+
+```{r}
+library(tidyverse)
+library(dplyr)
+
+general_cohort_restricted_impmodel_2 <- general_cohort_restricted[c("ID", "Year", "Site", "AgeCat", "Gender", "Race", "Ethnicity", "Insurance", "FPL_Level",
+                                                                 "On_Hormones", "HIV_Status", "cohort_years", "PHQ_Clinical")]
+
+general_cohort_restricted_impmodel_2016_2 <- general_cohort_restricted_impmodel_2[which(general_cohort_restricted_impmodel_2$Year == 2016),]
+```
+
+```{r}
+library(miceadds)
+
+#Checking missingness in the imputed datasets
+data.frame(prop_miss(general_cohort_restricted_impmodel_2016_2))
+```
+
+```{r}
+general_cohort_restricted_impmodel_2016_2$n_miss <- rowSums(is.na(general_cohort_restricted_impmodel_2016_2))
+
+general_cohort_restricted_impmodel_2016_2$any_miss <- ifelse(general_cohort_restricted_impmodel_2016_2$n_miss >= 1, 1, 0)
+
+table(general_cohort_restricted_impmodel_2016_2$any_miss)
+```
+
+
+
+
+
+## Attrition Analysis
+
+```{r}
+library(sqldf)
+
+baseline_PHQ <- sqldf('SELECT ID, PHQ_Clinical as PHQ_Clinical_2016 FROM general_cohort_restricted WHERE Year = 2016 ORDER BY ID')
+```
+
+```{r}
+library(sqldf)
+
+obsyear_data <- sqldf('SELECT ID, count(ID) as obs_years FROM general_cohort_restricted GROUP BY ID ORDER BY ID')
+```
+
+```{r}
+library(sqldf)
+
+attrition_data <- sqldf('SELECT a.ID, a.PHQ_Clinical_2016, b.obs_years FROM baseline_PHQ as a LEFT JOIN obsyear_data as b ON a.ID = b.ID ORDER BY a.ID')
+```
+
+```{r}
+t.test(attrition_data$obs_years ~ attrition_data$PHQ_Clinical_2016)
+```
+
+
+```{r}
+attrition_model <- glm(obs_years ~ PHQ_Clinical_2016, data = attrition_data)
+summary(attrition_model)
+```
+
+
+## Cohort Sociodemographics at Baseline (2016)
+
+```{r}
+#Subsetting baseline data for the general cohort
+general_baseline_restricted <- general_cohort_restricted[which(general_cohort_restricted$Year == 2016),]
+```
+
+```{r}
+library(stats)
+
+median(general_baseline_restricted$Age, na.rm = TRUE)
+IQR(general_baseline_restricted$Age, na.rm = TRUE)
+```
+
+```{r}
+library(tableone)
+
+general_baseline_restricted_table <- CreateTableOne(vars = c("Site", "AgeCat","Gender", "Race", "Ethnicity", 
+                                                  "Insurance", "FPL_Level", "On_Hormones", 
+                                                  "HIV_Risk", "cohort_years"),
+                                         strata = "PHQ_Clinical",
+                                         data = general_baseline_restricted, includeNA = TRUE,
+                                         addOverall = TRUE)
+
+general_baseline_restricted_table
+```
+
+### Complete Case Model
+
+```{r}
+general_cohort_2016 <- general_cohort[which(general_cohort$Year == 2016),]
+
+table(general_cohort_2016$PHQ_Clinical, useNA = 'always')
+
+baseline_phq <- general_cohort_2016$ID[!is.na(general_cohort_2016$PHQ_Clinical)]
+```
+
+```{r}
+general_cohort_complete_temp <- subset(general_cohort_restricted, select = c(ID, Year, Site, AgeCat, Gender, Race, Ethnicity, Insurance, FPL_Level,
+                                                                 On_Hormones, On_PrEP, HIV_Status, HIV_Suppressed, cohort_years, PHQ_Clinical))
+
+#general_cohort_completecase <- general_cohort_complete_temp[which(general_cohort_complete_temp$ID %in% baseline_phq),]
+
+#Creating a complete-case dataset
+general_cohort_completecase <- general_cohort_complete_temp[complete.cases(general_cohort_complete_temp),]
+```
+
+```{r}
+general_cohort_completecase <- mutate(general_cohort_completecase, HIV_Risk = case_when(
+  (HIV_Status == "HIV-") & (On_PrEP == "No") ~ 0,
+  (HIV_Status == "HIV-") & (On_PrEP == "Yes") ~ 1,
+  (HIV_Status == "HIV+") & (HIV_Suppressed == "<200 copies") ~ 2,
+  (HIV_Status == "HIV+") & (HIV_Suppressed == "200+ copies") ~ 3
+))
+
+general_cohort_completecase$HIV_Risk <- factor(general_cohort_completecase$HIV_Risk)
+
+levels(general_cohort_completecase$HIV_Risk) <- c("HIV- & Not on PrEP", "HIV- & On PrEP", 
+                                     "HIV+ & Virally Suppressed", 
+                                     "HIV+ & Non-Virally Suppressed")
+
+general_cohort_completecase <- mutate(general_cohort_completecase, Obs_Year = case_when(
+  Year == 2016 ~ 0,
+  Year == 2017 ~ 1,
+  Year == 2018 ~ 2,
+  Year == 2019 ~ 3
+))
+```
+
+```{r}
+#Collapsing race categories
+
+general_cohort_completecase <- mutate(general_cohort_completecase, Race_Three = case_when(
+  Race == "White" ~ 0,
+  Race == "Asian" ~ 1,
+  Race == "Black or African American" ~ 2,
+  Race == "American Indian or Alaska Native" | Race == "Another Race" | Race == "Multiracial" | Race == "Native Hawaiian or Other Pacific Islander" ~ 3
+))
+
+general_cohort_completecase$Race_Three <- factor(general_cohort_completecase$Race_Three)
+levels(general_cohort_completecase$Race_Three) <- c("White", "Asian", "Black/African American", "Another race")
+
+table(general_cohort_completecase$Race_Three)
+```
+
+```{r}
+general_cohort_completecase$PHQ_numeric <- NA
+general_cohort_completecase$PHQ_numeric[general_cohort_completecase$PHQ_Clinical == "No"] <- 0
+general_cohort_completecase$PHQ_numeric[general_cohort_completecase$PHQ_Clinical == "Yes"] <- 1
+```
+
+```{r}
+general_cohort_completecase$Gender <- factor(general_cohort_completecase$Gender)
+general_cohort_completecase$Ethnicity <- factor(general_cohort_completecase$Ethnicity)
+general_cohort_completecase$Insurance <- factor(general_cohort_completecase$Insurance)
+general_cohort_completecase$FPL_Level <- factor(general_cohort_completecase$FPL_Level)
+```
+
+```{r}
+table(general_cohort_completecase$Gender)
+```
+
+```{r}
+general_cohort_completecase <- mutate(general_cohort_completecase, Gender_Three = case_when(
+  Gender == "Male" ~ 0,
+  Gender == "Female" ~ 1,
+  Gender == "Nonbinary AFAB" | Gender == "Nonbinary AMAB" ~ 2
+))
+
+general_cohort_completecase$Gender_Three <- factor(general_cohort_completecase$Gender_Three)
+levels(general_cohort_completecase$Gender_Three) <- c("Male", "Female", "Nonbinary")
+table(general_cohort_completecase$Gender_Three)
+```
+
+
+```{r}
+library(geepack)
+
+CC_PHQ_adjusted <- geeglm(PHQ_numeric ~ On_Hormones + AgeCat + relevel(Gender_Three, ref = "Male") + relevel(Race_Three, ref = "White") + relevel(Ethnicity, ref = "Not Hispanic") + relevel(Insurance, ref = "Private insurance") + relevel(FPL_Level, ref = "251%+") + HIV_Risk + cohort_years + Obs_Year, 
+                          family = poisson(link = "log"), data = general_cohort_completecase, id = ID, waves = Obs_Year, corstr = "exchangeable")
+
+options(scipen = 5)
+
+tidy(CC_PHQ_adjusted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+CC_PHQ_adjusted_df <- df.residual(CC_PHQ_adjusted)
+```
+
+### Creating Wide Dataset for Imputation
+
+```{r}
+#Creating separate datasets for baseline sociodemographics & time-varying demographics and outcomes
+library(sqldf)
+
+Cohort_Demographics <- sqldf('SELECT ID, Site, Age, Gender, 
+                             Race, Ethnicity, cohort_years FROM general_cohort WHERE Year = 2016 ORDER BY ID')
+
+Outcomes_2016 <- sqldf('SELECT ID, Insurance, FPL_Level, On_Hormones, On_PrEP, HIV_Status, HIV_Suppressed, PHQ_Clinical 
+                       FROM general_cohort WHERE Year = 2016 ORDER BY ID')
+
+Outcomes_2017 <- sqldf('SELECT ID, Insurance, FPL_Level, On_Hormones, On_PrEP, HIV_Status, HIV_Suppressed, PHQ_Clinical 
+                       FROM general_cohort WHERE Year = 2017 ORDER BY ID')
+
+Outcomes_2018 <- sqldf('SELECT ID, Insurance, FPL_Level, On_Hormones, On_PrEP, HIV_Status, HIV_Suppressed, PHQ_Clinical
+                       FROM general_cohort WHERE Year = 2018 ORDER BY ID')
+
+Outcomes_2019 <- sqldf('SELECT ID, Insurance, FPL_Level, On_Hormones, On_PrEP, HIV_Status, HIV_Suppressed, PHQ_Clinical
+                       FROM general_cohort WHERE Year = 2019 ORDER BY ID')
+```
+
+```{r, message = FALSE, echo = FALSE}
+#Renaming variables in the outcome datasets before proceeding to left joins.
+library(data.table)
+
+setnames(Outcomes_2016, old = c('Insurance', 'FPL_Level', 'On_Hormones', 'On_PrEP',  
+                                'HIV_Status', 'HIV_Suppressed', 'PHQ_Clinical'), 
+         new = c('Insurance_2016', 'FPL_Level_2016', 'On_Hormones_2016', 'On_PrEP_2016', 
+                                'HIV_Status_2016', 'HIV_Suppressed_2016', 'PHQ_Clinical_2016'))
+
+setnames(Outcomes_2017, old = c('Insurance', 'FPL_Level', 'On_Hormones', 'On_PrEP',  
+                                'HIV_Status', 'HIV_Suppressed', 'PHQ_Clinical'), 
+         new = c('Insurance_2017', 'FPL_Level_2017', 'On_Hormones_2017', 'On_PrEP_2017', 
+                                'HIV_Status_2017', 'HIV_Suppressed_2017', 'PHQ_Clinical_2017'))
+
+setnames(Outcomes_2018, old = c('Insurance', 'FPL_Level', 'On_Hormones', 'On_PrEP',  
+                                'HIV_Status', 'HIV_Suppressed', 'PHQ_Clinical'), 
+         new = c('Insurance_2018', 'FPL_Level_2018', 'On_Hormones_2018', 'On_PrEP_2018', 
+                                'HIV_Status_2018', 'HIV_Suppressed_2018', 'PHQ_Clinical_2018'))
+
+setnames(Outcomes_2019, old = c('Insurance', 'FPL_Level', 'On_Hormones', 'On_PrEP',  
+                                'HIV_Status', 'HIV_Suppressed', 'PHQ_Clinical'), 
+         new = c('Insurance_2019', 'FPL_Level_2019', 'On_Hormones_2019', 'On_PrEP_2019', 
+                                'HIV_Status_2019', 'HIV_Suppressed_2019', 'PHQ_Clinical_2019'))
+
+```
+
+```{r}
+#Left joining the datasets on patient ID
+
+Demo_16 <- merge(Cohort_Demographics, Outcomes_2016, by = "ID")
+
+Demo_1617 <- merge(Demo_16, Outcomes_2017, by = "ID", all.x = TRUE)
+
+Demo_161718 <- merge(Demo_1617, Outcomes_2018, by = "ID", all.x = TRUE)
+
+general_cohort_wide <- merge(Demo_161718, Outcomes_2019, by = "ID", all.x = TRUE)
+```
+
+```{r}
+#Converting character variables to factor variables
+general_cohort_wide$Gender <- factor(general_cohort_wide$Gender)
+general_cohort_wide$Race <- factor(general_cohort_wide$Race)
+general_cohort_wide$Ethnicity <- factor(general_cohort_wide$Ethnicity)
+
+general_cohort_wide$Insurance_2016 <- factor(general_cohort_wide$Insurance_2016)
+general_cohort_wide$FPL_Level_2016 <- factor(general_cohort_wide$FPL_Level_2016)
+general_cohort_wide$HIV_Suppressed_2016 <- factor(general_cohort_wide$HIV_Suppressed_2016)
+general_cohort_wide$PHQ_Clinical_2016 <- factor(general_cohort_wide$PHQ_Clinical_2016)
+
+general_cohort_wide$Insurance_2017 <- factor(general_cohort_wide$Insurance_2017)
+general_cohort_wide$FPL_Level_2017 <- factor(general_cohort_wide$FPL_Level_2017)
+general_cohort_wide$HIV_Suppressed_2017 <- factor(general_cohort_wide$HIV_Suppressed_2017)
+general_cohort_wide$PHQ_Clinical_2017 <- factor(general_cohort_wide$PHQ_Clinical_2017)
+
+general_cohort_wide$Insurance_2018 <- factor(general_cohort_wide$Insurance_2018)
+general_cohort_wide$FPL_Level_2018 <- factor(general_cohort_wide$FPL_Level_2018)
+general_cohort_wide$HIV_Suppressed_2018 <- factor(general_cohort_wide$HIV_Suppressed_2018)
+general_cohort_wide$PHQ_Clinical_2018 <- factor(general_cohort_wide$PHQ_Clinical_2018)
+
+general_cohort_wide$Insurance_2019 <- factor(general_cohort_wide$Insurance_2019)
+general_cohort_wide$FPL_Level_2019 <- factor(general_cohort_wide$FPL_Level_2019)
+general_cohort_wide$HIV_Suppressed_2019 <- factor(general_cohort_wide$HIV_Suppressed_2019)
+general_cohort_wide$PHQ_Clinical_2019 <- factor(general_cohort_wide$PHQ_Clinical_2019)
+```
+
+### Multiple Imputation with Chained Equations
+
+```{r}
+#Establishing imputation methods and an initial predictor matrix for the final imputation model
+
+library(mice)
+
+init = mice(general_cohort_wide, maxit=0, seed=0829) 
+meth = init$method
+
+meth[c("ID")]=""
+meth[c("Site")]=""
+meth[c("Age")]="pmm"
+meth[c("Gender")]="polyreg"
+meth[c("Race")]="polyreg"
+meth[c("Ethnicity")]="cart"
+meth[c("cohort_years")]=""
+
+meth[c("Insurance_2016")]="polyreg"
+meth[c("FPL_Level_2016")]="cart"
+meth[c("On_Hormones_2016")]="cart"
+meth[c("On_PrEP_2016")]="cart"
+meth[c("HIV_Status_2016")]="cart"
+meth[c("HIV_Suppressed_2016")]="cart"
+meth[c("PHQ_Clinical_2016")]="cart"
+
+meth[c("Insurance_2017")]="polyreg"
+meth[c("FPL_Level_2017")]="cart"
+meth[c("On_Hormones_2017")]="cart"
+meth[c("On_PrEP_2017")]="cart"
+meth[c("HIV_Status_2017")]="cart"
+meth[c("HIV_Suppressed_2017")]="cart"
+meth[c("PHQ_Clinical_2017")]="cart"
+
+meth[c("Insurance_2018")]="polyreg"
+meth[c("FPL_Level_2018")]="cart"
+meth[c("On_Hormones_2018")]="cart"
+meth[c("On_PrEP_2018")]="cart"
+meth[c("HIV_Status_2018")]="cart"
+meth[c("HIV_Suppressed_2018")]="cart"
+meth[c("PHQ_Clinical_2018")]="cart"
+
+meth[c("Insurance_2019")]="polyreg"
+meth[c("FPL_Level_2019")]="cart"
+meth[c("On_Hormones_2019")]="cart"
+meth[c("On_PrEP_2019")]="cart"
+meth[c("HIV_Status_2019")]="cart"
+meth[c("HIV_Suppressed_2019")]="cart"
+meth[c("PHQ_Clinical_2019")]="cart"
+
+predM = init$predictorMatrix
+```
+
+```{r}
+#Editing the predictor matrix to remove IDs and post-baseline outcomes from the imputation model
+predM[,1] <- 0
+predM[,15:35] <- 0
+```
+
+```{r, echo = FALSE, eval = FALSE}
+#Applying multiple imputation with chained equations to the wide cohort dataset.
+library(mice)
+
+imputed_data <- mice(general_cohort_wide, method=meth, predictorMatrix = predM, m=5, seed = 0829)
+```
+
+```{r}
+wide_imputed_dataset <- complete(imputed_data, action="long", include=FALSE)
+```
+
+```{r}
+library(miceadds)
+
+#Checking missingness in the imputed datasets
+data.frame(prop_miss(wide_imputed_dataset))
+```
+
+### Cleaning Imputed Dataset
+
+```{r}
+#Examining raw cross-tabs for HIV status and being on PrEP
+table(wide_imputed_dataset$HIV_Status_2016, wide_imputed_dataset$On_PrEP_2016)
+table(wide_imputed_dataset$HIV_Status_2017, wide_imputed_dataset$On_PrEP_2017)
+table(wide_imputed_dataset$HIV_Status_2018, wide_imputed_dataset$On_PrEP_2018)
+table(wide_imputed_dataset$HIV_Status_2019, wide_imputed_dataset$On_PrEP_2019)
+```
+
+```{r}
+#Recoding on PrEP variable to "No" for folks who are HIV+
+wide_imputed_dataset$On_PrEP_2016[wide_imputed_dataset$HIV_Status_2016 == "HIV+"] <- "No"
+wide_imputed_dataset$On_PrEP_2017[wide_imputed_dataset$HIV_Status_2017 == "HIV+"] <- "No"
+wide_imputed_dataset$On_PrEP_2018[wide_imputed_dataset$HIV_Status_2018 == "HIV+"] <- "No"
+wide_imputed_dataset$On_PrEP_2019[wide_imputed_dataset$HIV_Status_2019 == "HIV+"] <- "No"
+```
+
+```{r}
+#Examining cleaned cross-tabs for HIV status and being on PrEP
+table(wide_imputed_dataset$HIV_Status_2016, wide_imputed_dataset$On_PrEP_2016)
+table(wide_imputed_dataset$HIV_Status_2017, wide_imputed_dataset$On_PrEP_2017)
+table(wide_imputed_dataset$HIV_Status_2018, wide_imputed_dataset$On_PrEP_2018)
+table(wide_imputed_dataset$HIV_Status_2019, wide_imputed_dataset$On_PrEP_2019)
+```
+
+```{r}
+#Examining raw cross-tabs for HIV status and viral suppression
+table(wide_imputed_dataset$HIV_Status_2016, wide_imputed_dataset$HIV_Suppressed_2016)
+table(wide_imputed_dataset$HIV_Status_2017, wide_imputed_dataset$HIV_Suppressed_2017)
+table(wide_imputed_dataset$HIV_Status_2018, wide_imputed_dataset$HIV_Suppressed_2018)
+table(wide_imputed_dataset$HIV_Status_2019, wide_imputed_dataset$HIV_Suppressed_2019)
+```
+
+```{r}
+#Recoding viral suppression variable to "<200 copies" for folks who are HIV-
+wide_imputed_dataset$HIV_Suppressed_2016[wide_imputed_dataset$HIV_Status_2016 == "HIV-"] <- "<200 copies"
+wide_imputed_dataset$HIV_Suppressed_2017[wide_imputed_dataset$HIV_Status_2017 == "HIV-"] <- "<200 copies"
+wide_imputed_dataset$HIV_Suppressed_2018[wide_imputed_dataset$HIV_Status_2018 == "HIV-"] <- "<200 copies"
+wide_imputed_dataset$HIV_Suppressed_2019[wide_imputed_dataset$HIV_Status_2019 == "HIV-"] <- "<200 copies"
+```
+
+```{r}
+#Examining cleaned cross-tabs for HIV status and viral suppression
+table(wide_imputed_dataset$HIV_Status_2016, wide_imputed_dataset$HIV_Suppressed_2016)
+table(wide_imputed_dataset$HIV_Status_2017, wide_imputed_dataset$HIV_Suppressed_2017)
+table(wide_imputed_dataset$HIV_Status_2018, wide_imputed_dataset$HIV_Suppressed_2018)
+table(wide_imputed_dataset$HIV_Status_2019, wide_imputed_dataset$HIV_Suppressed_2019)
+```
+
+```{r}
+wide_imputed_dataset <- mutate(wide_imputed_dataset, HIV_Risk_2016 = case_when(
+  (HIV_Status_2016 == "HIV-") & (On_PrEP_2016 == "No") ~ 0,
+  (HIV_Status_2016 == "HIV-") & (On_PrEP_2016 == "Yes") ~ 1,
+  (HIV_Status_2016 == "HIV+") & (HIV_Suppressed_2016 == "<200 copies") ~ 2,
+  (HIV_Status_2016 == "HIV+") & (HIV_Suppressed_2016 == "200+ copies") ~ 3
+))
+
+wide_imputed_dataset$HIV_Risk_2016 <- factor(wide_imputed_dataset$HIV_Risk_2016)
+
+levels(wide_imputed_dataset$HIV_Risk_2016) <- c("HIV- & Not on PrEP", "HIV- & On PrEP", 
+                                     "HIV+ & Virally Suppressed", 
+                                     "HIV+ & Non-Virally Suppressed")
+```
+
+```{r}
+wide_imputed_dataset <- mutate(wide_imputed_dataset, HIV_Risk_2017 = case_when(
+  (HIV_Status_2017 == "HIV-") & (On_PrEP_2017 == "No") ~ 0,
+  (HIV_Status_2017 == "HIV-") & (On_PrEP_2017 == "Yes") ~ 1,
+  (HIV_Status_2017 == "HIV+") & (HIV_Suppressed_2017 == "<200 copies") ~ 2,
+  (HIV_Status_2017 == "HIV+") & (HIV_Suppressed_2017 == "200+ copies") ~ 3
+))
+
+wide_imputed_dataset$HIV_Risk_2017 <- factor(wide_imputed_dataset$HIV_Risk_2017)
+
+levels(wide_imputed_dataset$HIV_Risk_2017) <- c("HIV- & Not on PrEP", "HIV- & On PrEP", 
+                                     "HIV+ & Virally Suppressed", 
+                                     "HIV+ & Non-Virally Suppressed")
+```
+
+```{r}
+wide_imputed_dataset <- mutate(wide_imputed_dataset, HIV_Risk_2018 = case_when(
+  (HIV_Status_2018 == "HIV-") & (On_PrEP_2018 == "No") ~ 0,
+  (HIV_Status_2018 == "HIV-") & (On_PrEP_2018 == "Yes") ~ 1,
+  (HIV_Status_2018 == "HIV+") & (HIV_Suppressed_2018 == "<200 copies") ~ 2,
+  (HIV_Status_2018 == "HIV+") & (HIV_Suppressed_2018 == "200+ copies") ~ 3
+))
+
+wide_imputed_dataset$HIV_Risk_2018 <- factor(wide_imputed_dataset$HIV_Risk_2018)
+
+levels(wide_imputed_dataset$HIV_Risk_2018) <- c("HIV- & Not on PrEP", "HIV- & On PrEP", 
+                                     "HIV+ & Virally Suppressed", 
+                                     "HIV+ & Non-Virally Suppressed")
+```
+
+```{r}
+wide_imputed_dataset <- mutate(wide_imputed_dataset, HIV_Risk_2019 = case_when(
+  (HIV_Status_2019 == "HIV-") & (On_PrEP_2019 == "No") ~ 0,
+  (HIV_Status_2019 == "HIV-") & (On_PrEP_2019 == "Yes") ~ 1,
+  (HIV_Status_2019 == "HIV+") & (HIV_Suppressed_2019 == "<200 copies") ~ 2,
+  (HIV_Status_2019 == "HIV+") & (HIV_Suppressed_2019 == "200+ copies") ~ 3
+))
+
+wide_imputed_dataset$HIV_Risk_2019 <- factor(wide_imputed_dataset$HIV_Risk_2019)
+
+levels(wide_imputed_dataset$HIV_Risk_2019) <- c("HIV- & Not on PrEP", "HIV- & On PrEP", 
+                                     "HIV+ & Virally Suppressed", 
+                                     "HIV+ & Non-Virally Suppressed")
+```
+
+```{r}
+table(wide_imputed_dataset$HIV_Risk_2016)
+table(wide_imputed_dataset$HIV_Risk_2017)
+table(wide_imputed_dataset$HIV_Risk_2018)
+table(wide_imputed_dataset$HIV_Risk_2019)
+```
+
+### Sociodemographics at Baseline for Imputed Dataset
+
+```{r}
+#Creating a categorical variable for age
+wide_imputed_dataset <- mutate(wide_imputed_dataset, AgeCat = case_when(
+  (18 <= Age) & (Age <= 24) ~ 0,
+  (25 <= Age) & (Age <= 30) ~ 1,
+  (31 <= Age) & (Age <= 40) ~ 2,
+  (41 <= Age) & (Age <= 50) ~ 3,
+  (Age >= 51) ~ 4))
+
+wide_imputed_dataset$AgeCat <- factor(wide_imputed_dataset$AgeCat, levels = c(0, 1, 2, 3, 4), 
+                                 labels = c("18-24 years", "25-30 years", "31-40 years",
+                                            "41-50 years", "51+ years"))
+```
+
+```{r}
+#Generating a descriptive statistic table for the general imputed dataset at baseline (2016) for the PHQ analysis
+
+library(tableone)
+
+imputed_baseline_table <- CreateTableOne(vars = c("Site", "Age", "AgeCat", "Gender", "Race", "Ethnicity", 
+                                                  "Insurance_2016", "FPL_Level_2016", "On_Hormones_2016", 
+                                                  "HIV_Risk_2016"),
+                                         strata = "PHQ_Clinical_2016",
+                                         data = wide_imputed_dataset, includeNA = TRUE,
+                                         addOverall = TRUE)
+
+imputed_baseline_table
+```
+
+
+## Creating Imputed Repeated Measures Dataset
+
+```{r}
+#Creating placeholder variables for imputation and ID keys
+wide_imputed_dataset$Imp_Num <- wide_imputed_dataset$".imp"
+wide_imputed_dataset$Imp_ID <- wide_imputed_dataset$".id"
+```
+
+```{r}
+impute_data_2016 <- sqldf("SELECT Imp_Num, Imp_ID, ID, Site, Age, Gender, Race, Ethnicity, cohort_years, Insurance_2016 as Insurance, FPL_Level_2016 as FPL_Level, On_Hormones_2016 as On_Hormones, On_PrEP_2016 as On_PrEP, HIV_Status_2016 as HIV_Status,
+HIV_Suppressed_2016 as HIV_Suppressed, PHQ_Clinical_2016 as PHQ_Clinical FROM wide_imputed_dataset ORDER BY Imp_Num")
+
+impute_data_2016$Year <- 2016
+```
+
+```{r}
+impute_data_2017 <- sqldf("SELECT Imp_Num, Imp_ID, ID, Site, Age, Gender, Race, Ethnicity, cohort_years, Insurance_2017 as Insurance, FPL_Level_2017 as FPL_Level, On_Hormones_2017 as On_Hormones, On_PrEP_2017 as On_PrEP, HIV_Status_2017 as HIV_Status,
+HIV_Suppressed_2017 as HIV_Suppressed, PHQ_Clinical_2017 as PHQ_Clinical FROM wide_imputed_dataset ORDER BY Imp_Num")
+
+impute_data_2017$Year <- 2017
+```
+
+```{r}
+#Creating placeholder variables for imputation and ID keys
+wide_imputed_dataset$Imp_Num <- wide_imputed_dataset$".imp"
+wide_imputed_dataset$Imp_ID <- wide_imputed_dataset$".id"
+```
+
+```{r}
+impute_data_2018 <- sqldf("SELECT Imp_Num, Imp_ID, ID, Site, Age, Gender, Race, Ethnicity, cohort_years, Insurance_2018 as Insurance, FPL_Level_2018 as FPL_Level, On_Hormones_2018 as On_Hormones, On_PrEP_2018 as On_PrEP, HIV_Status_2018 as HIV_Status,
+HIV_Suppressed_2018 as HIV_Suppressed, PHQ_Clinical_2018 as PHQ_Clinical FROM wide_imputed_dataset ORDER BY Imp_Num")
+
+impute_data_2018$Year <- 2018
+```
+
+```{r}
+impute_data_2019 <- sqldf("SELECT Imp_Num, Imp_ID, ID, Site, Age, Gender, Race, Ethnicity, cohort_years, Insurance_2019 as Insurance, FPL_Level_2019 as FPL_Level, On_Hormones_2019 as On_Hormones, On_PrEP_2019 as On_PrEP, HIV_Status_2019 as HIV_Status,
+HIV_Suppressed_2019 as HIV_Suppressed, PHQ_Clinical_2019 as PHQ_Clinical FROM wide_imputed_dataset ORDER BY Imp_Num")
+
+impute_data_2019$Year <- 2019
+```
+
+```{r}
+long_imputed_data <- rbind(impute_data_2016, impute_data_2017, impute_data_2018, impute_data_2019)
+```
+
+```{r}
+#Adding a variable for observation year
+long_imputed_data <- mutate(long_imputed_data, Obs_Year = case_when(
+  Year == 2016 ~ 0,
+  Year == 2017 ~ 1,
+  Year == 2018 ~ 2,
+  Year == 2019 ~ 3
+))
+
+#Creating a categorical variable for age
+long_imputed_data <- mutate(long_imputed_data, AgeCat = case_when(
+  (18 <= Age) & (Age <= 24) ~ 0,
+  (25 <= Age) & (Age <= 30) ~ 1,
+  (31 <= Age) & (Age <= 40) ~ 2,
+  (41 <= Age) & (Age <= 50) ~ 3,
+  (Age >= 51) ~ 4))
+
+long_imputed_data$AgeCat <- factor(long_imputed_data$AgeCat, levels = c(0, 1, 2, 3, 4), 
+                                 labels = c("18-24 years", "25-30 years", "31-40 years",
+                                            "41-50 years", "51+ years"))
+```
+
+```{r}
+#Recoding imputation and ID keys
+long_imputed_data$".imp" <- long_imputed_data$Imp_Num
+long_imputed_data$".id" <- long_imputed_data$Imp_ID
+
+#Dropping placeholder keys
+long_imputed_data <- subset(long_imputed_data, select = -c(Imp_Num, Imp_ID))
+```
+
+```{r}
+long_imputed_data <- long_imputed_data[order(long_imputed_data$.imp, long_imputed_data$.id),]
+```
+
+## Cleaning Long Imputed Dataset
+
+```{r}
+#Recoding character variables as factors
+long_imputed_data$Insurance <- factor(long_imputed_data$Insurance)
+levels(long_imputed_data$Insurance)
+
+long_imputed_data$FPL_Level <- factor(long_imputed_data$FPL_Level)
+levels(long_imputed_data$FPL_Level)
+
+long_imputed_data$On_Hormones <- factor(long_imputed_data$On_Hormones)
+levels(long_imputed_data$On_Hormones)
+
+long_imputed_data$On_PrEP <- factor(long_imputed_data$On_PrEP)
+levels(long_imputed_data$On_PrEP)
+
+long_imputed_data$HIV_Status <- factor(long_imputed_data$HIV_Status)
+levels(long_imputed_data$HIV_Status)
+
+long_imputed_data$HIV_Suppressed <- factor(long_imputed_data$HIV_Suppressed)
+levels(long_imputed_data$HIV_Suppressed)
+
+long_imputed_data$PHQ_Clinical <- factor(long_imputed_data$PHQ_Clinical)
+levels(long_imputed_data$PHQ_Clinical)
+```
+
+```{r}
+long_imputed_data <- mutate(long_imputed_data, HIV_Risk = case_when(
+  (HIV_Status == "HIV-") & (On_PrEP == "No") ~ 0,
+  (HIV_Status == "HIV-") & (On_PrEP == "Yes") ~ 1,
+  (HIV_Status == "HIV+") & (HIV_Suppressed == "<200 copies") ~ 2,
+  (HIV_Status == "HIV+") & (HIV_Suppressed == "200+ copies") ~ 3
+))
+
+long_imputed_data$HIV_Risk <- factor(long_imputed_data$HIV_Risk)
+
+levels(long_imputed_data$HIV_Risk) <- c("HIV- & Not on PrEP", "HIV- & On PrEP", 
+                                     "HIV+ & Virally Suppressed", 
+                                     "HIV+ & Non-Virally Suppressed")
+
+```
+
+```{r}
+long_imputed_data <- mutate(long_imputed_data, PHQ_Numeric = case_when(
+  PHQ_Clinical == "No" ~ 0,
+  PHQ_Clinical == "Yes" ~ 1
+))
+```
+
+## Creating Dataset List
+
+```{r}
+imputed_data_list <- split(long_imputed_data, f = long_imputed_data$.imp)
+```
+
+## GEE Modeling Across Datasets
+
+```{r}
+library(miceadds)
+
+imputed_mids <- datalist2mids(imputed_data_list)
+```
+
+
+## Bivariate Models (Non-Restricted)
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_bivariate_hormones <- with(imputed_mids, exp <- geeglm(PHQ_Numeric ~ On_Hormones + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_hormones <- pool(PHQ_bivariate_hormones)
+
+options(digits = 3)
+
+summary(PHQ_combined_hormones, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_bivariate_site <- with(imputed_mids, exp <- geeglm(PHQ_Numeric ~ Site + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_site <- pool(PHQ_bivariate_site)
+
+options(digits = 3)
+
+summary(PHQ_combined_site, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_bivariate_age <- with(imputed_mids, exp <- geeglm(PHQ_Numeric ~ AgeCat + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_age <- pool(PHQ_bivariate_age)
+
+options(digits = 3)
+
+summary(PHQ_combined_age, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_bivariate_gender <- with(imputed_mids, exp <- geeglm(PHQ_Numeric ~ relevel(Gender, ref = "Male") + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_gender <- pool(PHQ_bivariate_gender)
+
+options(digits = 3)
+
+summary(PHQ_combined_gender, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_bivariate_race <- with(imputed_mids, exp <- geeglm(PHQ_Numeric ~ relevel(Race, ref = "White") + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_race <- pool(PHQ_bivariate_race)
+
+options(digits = 3)
+
+summary(PHQ_combined_race, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_bivariate_ethnicity <- with(imputed_mids, exp <- geeglm(PHQ_Numeric ~ relevel(Ethnicity, ref = "Not Hispanic") + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_ethnicity <- pool(PHQ_bivariate_ethnicity)
+
+options(digits = 3)
+
+summary(PHQ_combined_ethnicity, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_bivariate_insurance <- with(imputed_mids, exp <- geeglm(PHQ_Numeric ~ Insurance + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_insurance <- pool(PHQ_bivariate_insurance)
+
+options(digits = 3)
+
+summary(PHQ_combined_insurance, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_bivariate_fpl <- with(imputed_mids, exp <- geeglm(PHQ_Numeric ~ relevel(FPL_Level, ref = "251%+") + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_fpl <- pool(PHQ_bivariate_fpl)
+
+options(digits = 3)
+
+summary(PHQ_combined_fpl, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_bivariate_hiv <- with(imputed_mids, exp <- geeglm(PHQ_Numeric ~ HIV_Risk + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_hiv <- pool(PHQ_bivariate_hiv)
+
+options(digits = 3)
+
+summary(PHQ_combined_hiv, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_bivariate_cohortyears <- with(imputed_mids, exp <- geeglm(PHQ_Numeric ~ cohort_years + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_cohortyears <- pool(PHQ_bivariate_cohortyears)
+
+options(digits = 3)
+
+summary(PHQ_combined_cohortyears, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+## Multivariable Model (Non-Restricted)
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_adjusted <- with(imputed_mids, exp <- geeglm(PHQ_Numeric ~ On_Hormones + Site + AgeCat + relevel(Gender, ref = "Male") + relevel(Race, ref = "White") + 
+                                                   relevel(Ethnicity, ref = "Not Hispanic") + Insurance + relevel(FPL_Level, ref = "251%+")
+                                                 + HIV_Risk + cohort_years + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_adjusted <- pool(PHQ_adjusted)
+
+options(digits = 3)
+
+summary(PHQ_combined_adjusted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+
+## E-value
+
+```{r}
+library(EValue)
+
+evalues.RR(est = 0.854, lo = 0.746, hi = 0.977)
+```
+
+
+
+# Restricted Sample Imputation and Analyses
+
+```{r}
+table(general_cohort_restricted$Year)
+```
+
+
+```{r}
+table(general_cohort_restricted$Year, general_cohort_restricted$On_Hormones)
+```
+```{r}
+table(general_cohort_restricted$Year, general_cohort_restricted$PHQ_Clinical)
+```
+
+
+
+### Creating Wide Dataset for Imputation
+
+```{r}
+#Creating separate datasets for baseline sociodemographics & time-varying demographics and outcomes
+library(sqldf)
+
+Cohort_Demographics_Restricted <- sqldf('SELECT ID, Site, Age, Gender, 
+                             Race, Ethnicity, cohort_years FROM general_cohort_restricted WHERE Year = 2016 ORDER BY ID')
+
+Outcomes_Restricted_2016 <- sqldf('SELECT ID, Insurance, FPL_Level, On_Hormones, On_PrEP, HIV_Status, HIV_Suppressed, PHQ_Clinical 
+                       FROM general_cohort_restricted WHERE Year = 2016 ORDER BY ID')
+
+Outcomes_Restricted_2017 <- sqldf('SELECT ID, Insurance, FPL_Level, On_Hormones, On_PrEP, HIV_Status, HIV_Suppressed, PHQ_Clinical 
+                       FROM general_cohort_restricted WHERE Year = 2017 ORDER BY ID')
+
+Outcomes_Restricted_2018 <- sqldf('SELECT ID, Insurance, FPL_Level, On_Hormones, On_PrEP, HIV_Status, HIV_Suppressed, PHQ_Clinical
+                       FROM general_cohort_restricted WHERE Year = 2018 ORDER BY ID')
+
+Outcomes_Restricted_2019 <- sqldf('SELECT ID, Insurance, FPL_Level, On_Hormones, On_PrEP, HIV_Status, HIV_Suppressed, PHQ_Clinical
+                       FROM general_cohort_restricted WHERE Year = 2019 ORDER BY ID')
+```
+
+```{r, message = FALSE, echo = FALSE}
+#Renaming variables in the outcome datasets before proceeding to left joins.
+library(data.table)
+
+setnames(Outcomes_Restricted_2016, old = c('Insurance', 'FPL_Level', 'On_Hormones', 'On_PrEP',  
+                                'HIV_Status', 'HIV_Suppressed', 'PHQ_Clinical'), 
+         new = c('Insurance_2016', 'FPL_Level_2016', 'On_Hormones_2016', 'On_PrEP_2016', 
+                                'HIV_Status_2016', 'HIV_Suppressed_2016', 'PHQ_Clinical_2016'))
+
+setnames(Outcomes_Restricted_2017, old = c('Insurance', 'FPL_Level', 'On_Hormones', 'On_PrEP',  
+                                'HIV_Status', 'HIV_Suppressed', 'PHQ_Clinical'), 
+         new = c('Insurance_2017', 'FPL_Level_2017', 'On_Hormones_2017', 'On_PrEP_2017', 
+                                'HIV_Status_2017', 'HIV_Suppressed_2017', 'PHQ_Clinical_2017'))
+
+setnames(Outcomes_Restricted_2018, old = c('Insurance', 'FPL_Level', 'On_Hormones', 'On_PrEP',  
+                                'HIV_Status', 'HIV_Suppressed', 'PHQ_Clinical'), 
+         new = c('Insurance_2018', 'FPL_Level_2018', 'On_Hormones_2018', 'On_PrEP_2018', 
+                                'HIV_Status_2018', 'HIV_Suppressed_2018', 'PHQ_Clinical_2018'))
+
+setnames(Outcomes_Restricted_2019, old = c('Insurance', 'FPL_Level', 'On_Hormones', 'On_PrEP',  
+                                'HIV_Status', 'HIV_Suppressed', 'PHQ_Clinical'), 
+         new = c('Insurance_2019', 'FPL_Level_2019', 'On_Hormones_2019', 'On_PrEP_2019', 
+                                'HIV_Status_2019', 'HIV_Suppressed_2019', 'PHQ_Clinical_2019'))
+
+```
+
+```{r}
+#Left joining the datasets on patient ID
+
+Demo_16_Restricted <- merge(Cohort_Demographics_Restricted, Outcomes_Restricted_2016, by = "ID")
+
+Demo_1617_Restricted <- merge(Demo_16_Restricted, Outcomes_Restricted_2017, by = "ID", all.x = TRUE)
+
+Demo_161718_Restricted <- merge(Demo_1617_Restricted, Outcomes_Restricted_2018, by = "ID", all.x = TRUE)
+
+general_cohort_restricted_wide <- merge(Demo_161718_Restricted, Outcomes_Restricted_2019, by = "ID", all.x = TRUE)
+```
+
+```{r}
+#Converting character variables to factor variables
+general_cohort_restricted_wide$Gender <- factor(general_cohort_restricted_wide$Gender)
+general_cohort_restricted_wide$Race <- factor(general_cohort_restricted_wide$Race)
+general_cohort_restricted_wide$Ethnicity <- factor(general_cohort_restricted_wide$Ethnicity)
+
+general_cohort_restricted_wide$Insurance_2016 <- factor(general_cohort_restricted_wide$Insurance_2016)
+general_cohort_restricted_wide$FPL_Level_2016 <- factor(general_cohort_restricted_wide$FPL_Level_2016)
+general_cohort_restricted_wide$HIV_Suppressed_2016 <- factor(general_cohort_restricted_wide$HIV_Suppressed_2016)
+general_cohort_restricted_wide$PHQ_Clinical_2016 <- factor(general_cohort_restricted_wide$PHQ_Clinical_2016)
+
+general_cohort_restricted_wide$Insurance_2017 <- factor(general_cohort_restricted_wide$Insurance_2017)
+general_cohort_restricted_wide$FPL_Level_2017 <- factor(general_cohort_restricted_wide$FPL_Level_2017)
+general_cohort_restricted_wide$HIV_Suppressed_2017 <- factor(general_cohort_restricted_wide$HIV_Suppressed_2017)
+general_cohort_restricted_wide$PHQ_Clinical_2017 <- factor(general_cohort_restricted_wide$PHQ_Clinical_2017)
+
+general_cohort_restricted_wide$Insurance_2018 <- factor(general_cohort_restricted_wide$Insurance_2018)
+general_cohort_restricted_wide$FPL_Level_2018 <- factor(general_cohort_restricted_wide$FPL_Level_2018)
+general_cohort_restricted_wide$HIV_Suppressed_2018 <- factor(general_cohort_restricted_wide$HIV_Suppressed_2018)
+general_cohort_restricted_wide$PHQ_Clinical_2018 <- factor(general_cohort_restricted_wide$PHQ_Clinical_2018)
+
+general_cohort_restricted_wide$Insurance_2019 <- factor(general_cohort_restricted_wide$Insurance_2019)
+general_cohort_restricted_wide$FPL_Level_2019 <- factor(general_cohort_restricted_wide$FPL_Level_2019)
+general_cohort_restricted_wide$HIV_Suppressed_2019 <- factor(general_cohort_restricted_wide$HIV_Suppressed_2019)
+general_cohort_restricted_wide$PHQ_Clinical_2019 <- factor(general_cohort_restricted_wide$PHQ_Clinical_2019)
+```
+
+```{r}
+median(general_cohort_restricted_wide$Age, na.rm = TRUE)
+IQR(general_cohort_restricted_wide$Age, na.rm = TRUE)
+```
+
+## Examining Missingness in Restricted (Non-Imputed) Dataset
+
+```{r}
+miss_check_data <- general_cohort_restricted_wide[c('ID', "Site", "Age", "Gender", "Race", "Ethnicity", "cohort_years", "Insurance_2016", "FPL_Level_2016", "On_Hormones_2016", "On_PrEP_2016", "HIV_Status_2016", "HIV_Suppressed_2016", "PHQ_Clinical_2016")]
+```
+
+```{r}
+miss_check_data$miss_n <- rowSums(is.na(miss_check_data))
+
+miss_check_data$any_miss <- ifelse(miss_check_data$miss_n >= 1, 1, 0)
+
+table(miss_check_data$any_miss)
+```
+
+### Multiple Imputation with Chained Equations
+
+```{r}
+#Establishing imputation methods and an initial predictor matrix for the final imputation model
+
+library(mice)
+
+init = mice(general_cohort_restricted_wide, maxit=0, seed=0829) 
+meth = init$method
+
+meth[c("ID")]=""
+meth[c("Site")]=""
+meth[c("Age")]="pmm"
+meth[c("Gender")]="polyreg"
+meth[c("Race")]="polyreg"
+meth[c("Ethnicity")]="cart"
+meth[c("cohort_years")]=""
+
+meth[c("Insurance_2016")]="polyreg"
+meth[c("FPL_Level_2016")]="cart"
+meth[c("On_Hormones_2016")]="cart"
+meth[c("On_PrEP_2016")]="cart"
+meth[c("HIV_Status_2016")]="cart"
+meth[c("HIV_Suppressed_2016")]="cart"
+meth[c("PHQ_Clinical_2016")]=""
+
+meth[c("Insurance_2017")]="polyreg"
+meth[c("FPL_Level_2017")]="cart"
+meth[c("On_Hormones_2017")]="cart"
+meth[c("On_PrEP_2017")]="cart"
+meth[c("HIV_Status_2017")]="cart"
+meth[c("HIV_Suppressed_2017")]="cart"
+meth[c("PHQ_Clinical_2017")]=""
+
+meth[c("Insurance_2018")]="polyreg"
+meth[c("FPL_Level_2018")]="cart"
+meth[c("On_Hormones_2018")]="cart"
+meth[c("On_PrEP_2018")]="cart"
+meth[c("HIV_Status_2018")]="cart"
+meth[c("HIV_Suppressed_2018")]="cart"
+meth[c("PHQ_Clinical_2018")]=""
+
+meth[c("Insurance_2019")]="polyreg"
+meth[c("FPL_Level_2019")]="cart"
+meth[c("On_Hormones_2019")]="cart"
+meth[c("On_PrEP_2019")]="cart"
+meth[c("HIV_Status_2019")]="cart"
+meth[c("HIV_Suppressed_2019")]="cart"
+meth[c("PHQ_Clinical_2019")]=""
+
+predM_Restricted = init$predictorMatrix
+```
+
+```{r}
+#Editing the predictor matrix to remove IDs and post-baseline Outcomes_Restricted from the imputation model
+predM_Restricted[,1] <- 0
+predM_Restricted[,15:35] <- 0
+```
+
+```{r, echo = FALSE, eval = FALSE}
+#Applying multiple imputation with chained equations to the wide cohort dataset.
+library(mice)
+
+imputed_data_restricted <- mice(general_cohort_restricted_wide, method=meth, predictorMatrix = predM_Restricted, m=5, seed = 0829)
+```
+
+```{r}
+wide_imputed_dataset_restricted <- complete(imputed_data_restricted, action="long", include=FALSE)
+```
+
+```{r}
+library(miceadds)
+
+#Checking missingness in the imputed datasets
+data.frame(prop_miss(wide_imputed_dataset_restricted))
+```
+
+### Cleaning Imputed dataset_restricted
+
+```{r}
+#Examining raw cross-tabs for HIV status and being on PrEP
+table(wide_imputed_dataset_restricted$HIV_Status_2016, wide_imputed_dataset_restricted$On_PrEP_2016)
+table(wide_imputed_dataset_restricted$HIV_Status_2017, wide_imputed_dataset_restricted$On_PrEP_2017)
+table(wide_imputed_dataset_restricted$HIV_Status_2018, wide_imputed_dataset_restricted$On_PrEP_2018)
+table(wide_imputed_dataset_restricted$HIV_Status_2019, wide_imputed_dataset_restricted$On_PrEP_2019)
+```
+
+```{r}
+#Recoding on PrEP variable to "No" for folks who are HIV+
+wide_imputed_dataset_restricted$On_PrEP_2016[wide_imputed_dataset_restricted$HIV_Status_2016 == "HIV+"] <- "No"
+wide_imputed_dataset_restricted$On_PrEP_2017[wide_imputed_dataset_restricted$HIV_Status_2017 == "HIV+"] <- "No"
+wide_imputed_dataset_restricted$On_PrEP_2018[wide_imputed_dataset_restricted$HIV_Status_2018 == "HIV+"] <- "No"
+wide_imputed_dataset_restricted$On_PrEP_2019[wide_imputed_dataset_restricted$HIV_Status_2019 == "HIV+"] <- "No"
+```
+
+```{r}
+#Examining cleaned cross-tabs for HIV status and being on PrEP
+table(wide_imputed_dataset_restricted$HIV_Status_2016, wide_imputed_dataset_restricted$On_PrEP_2016)
+table(wide_imputed_dataset_restricted$HIV_Status_2017, wide_imputed_dataset_restricted$On_PrEP_2017)
+table(wide_imputed_dataset_restricted$HIV_Status_2018, wide_imputed_dataset_restricted$On_PrEP_2018)
+table(wide_imputed_dataset_restricted$HIV_Status_2019, wide_imputed_dataset_restricted$On_PrEP_2019)
+```
+
+```{r}
+#Examining raw cross-tabs for HIV status and viral suppression
+table(wide_imputed_dataset_restricted$HIV_Status_2016, wide_imputed_dataset_restricted$HIV_Suppressed_2016)
+table(wide_imputed_dataset_restricted$HIV_Status_2017, wide_imputed_dataset_restricted$HIV_Suppressed_2017)
+table(wide_imputed_dataset_restricted$HIV_Status_2018, wide_imputed_dataset_restricted$HIV_Suppressed_2018)
+table(wide_imputed_dataset_restricted$HIV_Status_2019, wide_imputed_dataset_restricted$HIV_Suppressed_2019)
+```
+
+```{r}
+#Recoding viral suppression variable to "<200 copies" for folks who are HIV-
+wide_imputed_dataset_restricted$HIV_Suppressed_2016[wide_imputed_dataset_restricted$HIV_Status_2016 == "HIV-"] <- "<200 copies"
+wide_imputed_dataset_restricted$HIV_Suppressed_2017[wide_imputed_dataset_restricted$HIV_Status_2017 == "HIV-"] <- "<200 copies"
+wide_imputed_dataset_restricted$HIV_Suppressed_2018[wide_imputed_dataset_restricted$HIV_Status_2018 == "HIV-"] <- "<200 copies"
+wide_imputed_dataset_restricted$HIV_Suppressed_2019[wide_imputed_dataset_restricted$HIV_Status_2019 == "HIV-"] <- "<200 copies"
+```
+
+```{r}
+#Examining cleaned cross-tabs for HIV status and viral suppression
+table(wide_imputed_dataset_restricted$HIV_Status_2016, wide_imputed_dataset_restricted$HIV_Suppressed_2016)
+table(wide_imputed_dataset_restricted$HIV_Status_2017, wide_imputed_dataset_restricted$HIV_Suppressed_2017)
+table(wide_imputed_dataset_restricted$HIV_Status_2018, wide_imputed_dataset_restricted$HIV_Suppressed_2018)
+table(wide_imputed_dataset_restricted$HIV_Status_2019, wide_imputed_dataset_restricted$HIV_Suppressed_2019)
+```
+
+```{r}
+wide_imputed_dataset_restricted <- mutate(wide_imputed_dataset_restricted, HIV_Risk_2016 = case_when(
+  (HIV_Status_2016 == "HIV-") & (On_PrEP_2016 == "No") ~ 0,
+  (HIV_Status_2016 == "HIV-") & (On_PrEP_2016 == "Yes") ~ 1,
+  (HIV_Status_2016 == "HIV+") & (HIV_Suppressed_2016 == "<200 copies") ~ 2,
+  (HIV_Status_2016 == "HIV+") & (HIV_Suppressed_2016 == "200+ copies") ~ 3
+))
+
+wide_imputed_dataset_restricted$HIV_Risk_2016 <- factor(wide_imputed_dataset_restricted$HIV_Risk_2016)
+
+levels(wide_imputed_dataset_restricted$HIV_Risk_2016) <- c("HIV- & Not on PrEP", "HIV- & On PrEP", 
+                                     "HIV+ & Virally Suppressed", 
+                                     "HIV+ & Non-Virally Suppressed")
+```
+
+```{r}
+wide_imputed_dataset_restricted <- mutate(wide_imputed_dataset_restricted, HIV_Risk_2017 = case_when(
+  (HIV_Status_2017 == "HIV-") & (On_PrEP_2017 == "No") ~ 0,
+  (HIV_Status_2017 == "HIV-") & (On_PrEP_2017 == "Yes") ~ 1,
+  (HIV_Status_2017 == "HIV+") & (HIV_Suppressed_2017 == "<200 copies") ~ 2,
+  (HIV_Status_2017 == "HIV+") & (HIV_Suppressed_2017 == "200+ copies") ~ 3
+))
+
+wide_imputed_dataset_restricted$HIV_Risk_2017 <- factor(wide_imputed_dataset_restricted$HIV_Risk_2017)
+
+levels(wide_imputed_dataset_restricted$HIV_Risk_2017) <- c("HIV- & Not on PrEP", "HIV- & On PrEP", 
+                                     "HIV+ & Virally Suppressed", 
+                                     "HIV+ & Non-Virally Suppressed")
+```
+
+```{r}
+wide_imputed_dataset_restricted <- mutate(wide_imputed_dataset_restricted, HIV_Risk_2018 = case_when(
+  (HIV_Status_2018 == "HIV-") & (On_PrEP_2018 == "No") ~ 0,
+  (HIV_Status_2018 == "HIV-") & (On_PrEP_2018 == "Yes") ~ 1,
+  (HIV_Status_2018 == "HIV+") & (HIV_Suppressed_2018 == "<200 copies") ~ 2,
+  (HIV_Status_2018 == "HIV+") & (HIV_Suppressed_2018 == "200+ copies") ~ 3
+))
+
+wide_imputed_dataset_restricted$HIV_Risk_2018 <- factor(wide_imputed_dataset_restricted$HIV_Risk_2018)
+
+levels(wide_imputed_dataset_restricted$HIV_Risk_2018) <- c("HIV- & Not on PrEP", "HIV- & On PrEP", 
+                                     "HIV+ & Virally Suppressed", 
+                                     "HIV+ & Non-Virally Suppressed")
+```
+
+```{r}
+wide_imputed_dataset_restricted <- mutate(wide_imputed_dataset_restricted, HIV_Risk_2019 = case_when(
+  (HIV_Status_2019 == "HIV-") & (On_PrEP_2019 == "No") ~ 0,
+  (HIV_Status_2019 == "HIV-") & (On_PrEP_2019 == "Yes") ~ 1,
+  (HIV_Status_2019 == "HIV+") & (HIV_Suppressed_2019 == "<200 copies") ~ 2,
+  (HIV_Status_2019 == "HIV+") & (HIV_Suppressed_2019 == "200+ copies") ~ 3
+))
+
+wide_imputed_dataset_restricted$HIV_Risk_2019 <- factor(wide_imputed_dataset_restricted$HIV_Risk_2019)
+
+levels(wide_imputed_dataset_restricted$HIV_Risk_2019) <- c("HIV- & Not on PrEP", "HIV- & On PrEP", 
+                                     "HIV+ & Virally Suppressed", 
+                                     "HIV+ & Non-Virally Suppressed")
+```
+
+```{r}
+table(wide_imputed_dataset_restricted$HIV_Risk_2016)
+table(wide_imputed_dataset_restricted$HIV_Risk_2017)
+table(wide_imputed_dataset_restricted$HIV_Risk_2018)
+table(wide_imputed_dataset_restricted$HIV_Risk_2019)
+```
+
+## Creating Imputed Repeated Measures dataset_restricted
+
+```{r}
+#Creating placeholder variables for imputation and ID keys
+wide_imputed_dataset_restricted$Imp_Num <- wide_imputed_dataset_restricted$".imp"
+wide_imputed_dataset_restricted$Imp_ID <- wide_imputed_dataset_restricted$".id"
+```
+
+```{r}
+impute_data_restricted_2016 <- sqldf("SELECT Imp_Num, Imp_ID, ID, Site, Age, Gender, Race, Ethnicity, cohort_years, Insurance_2016 as Insurance, FPL_Level_2016 as FPL_Level, On_Hormones_2016 as On_Hormones, On_PrEP_2016 as On_PrEP, HIV_Status_2016 as HIV_Status,
+HIV_Suppressed_2016 as HIV_Suppressed, PHQ_Clinical_2016 as PHQ_Clinical FROM wide_imputed_dataset_restricted ORDER BY Imp_Num")
+
+impute_data_restricted_2016$Year <- 2016
+```
+
+```{r}
+impute_data_restricted_2017 <- sqldf("SELECT Imp_Num, Imp_ID, ID, Site, Age, Gender, Race, Ethnicity, cohort_years, Insurance_2017 as Insurance, FPL_Level_2017 as FPL_Level, On_Hormones_2017 as On_Hormones, On_PrEP_2017 as On_PrEP, HIV_Status_2017 as HIV_Status,
+HIV_Suppressed_2017 as HIV_Suppressed, PHQ_Clinical_2017 as PHQ_Clinical FROM wide_imputed_dataset_restricted ORDER BY Imp_Num")
+
+impute_data_restricted_2017$Year <- 2017
+```
+
+```{r}
+#Creating placeholder variables for imputation and ID keys
+wide_imputed_dataset_restricted$Imp_Num <- wide_imputed_dataset_restricted$".imp"
+wide_imputed_dataset_restricted$Imp_ID <- wide_imputed_dataset_restricted$".id"
+```
+
+```{r}
+impute_data_restricted_2018 <- sqldf("SELECT Imp_Num, Imp_ID, ID, Site, Age, Gender, Race, Ethnicity, cohort_years, Insurance_2018 as Insurance, FPL_Level_2018 as FPL_Level, On_Hormones_2018 as On_Hormones, On_PrEP_2018 as On_PrEP, HIV_Status_2018 as HIV_Status,
+HIV_Suppressed_2018 as HIV_Suppressed, PHQ_Clinical_2018 as PHQ_Clinical FROM wide_imputed_dataset_restricted ORDER BY Imp_Num")
+
+impute_data_restricted_2018$Year <- 2018
+```
+
+```{r}
+impute_data_restricted_2019 <- sqldf("SELECT Imp_Num, Imp_ID, ID, Site, Age, Gender, Race, Ethnicity, cohort_years, Insurance_2019 as Insurance, FPL_Level_2019 as FPL_Level, On_Hormones_2019 as On_Hormones, On_PrEP_2019 as On_PrEP, HIV_Status_2019 as HIV_Status,
+HIV_Suppressed_2019 as HIV_Suppressed, PHQ_Clinical_2019 as PHQ_Clinical FROM wide_imputed_dataset_restricted ORDER BY Imp_Num")
+
+impute_data_restricted_2019$Year <- 2019
+```
+
+```{r}
+long_imputed_data_restricted <- rbind(impute_data_restricted_2016, impute_data_restricted_2017, impute_data_restricted_2018, impute_data_restricted_2019)
+```
+
+```{r}
+#Adding a variable for observation year
+long_imputed_data_restricted <- mutate(long_imputed_data_restricted, Obs_Year = case_when(
+  Year == 2016 ~ 0,
+  Year == 2017 ~ 1,
+  Year == 2018 ~ 2,
+  Year == 2019 ~ 3
+))
+
+#Creating a categorical variable for age
+long_imputed_data_restricted <- mutate(long_imputed_data_restricted, AgeCat = case_when(
+  (18 <= Age) & (Age <= 24) ~ 0,
+  (25 <= Age) & (Age <= 30) ~ 1,
+  (31 <= Age) & (Age <= 40) ~ 2,
+  (41 <= Age) & (Age <= 50) ~ 3,
+  (Age >= 51) ~ 4))
+
+long_imputed_data_restricted$AgeCat <- factor(long_imputed_data_restricted$AgeCat, levels = c(0, 1, 2, 3, 4), 
+                                 labels = c("18-24 years", "25-30 years", "31-40 years",
+                                            "41-50 years", "51+ years"))
+```
+
+```{r}
+table(long_imputed_data_restricted$Race)
+```
+
+
+```{r}
+#Collapsing race categories
+
+long_imputed_data_restricted <- mutate(long_imputed_data_restricted, Race_Three = case_when(
+  Race == "White" ~ 0,
+  Race == "Asian" ~ 1,
+  Race == "Black or African American" ~ 2,
+  Race == "American Indian or Alaska Native" | Race == "Another Race" | Race == "Multiracial" | Race == "Native Hawaiian or Other Pacific Islander" ~ 3
+))
+
+long_imputed_data_restricted$Race_Three <- factor(long_imputed_data_restricted$Race_Three)
+levels(long_imputed_data_restricted$Race_Three) <- c("White", "Asian", "Black or African American", "Another Race")
+
+table(long_imputed_data_restricted$Race_Three)
+```
+
+
+```{r}
+#Recoding imputation and ID keys
+long_imputed_data_restricted$".imp" <- long_imputed_data_restricted$Imp_Num
+long_imputed_data_restricted$".id" <- long_imputed_data_restricted$Imp_ID
+
+#Dropping placeholder keys
+long_imputed_data_restricted <- subset(long_imputed_data_restricted, select = -c(Imp_Num, Imp_ID))
+```
+
+```{r}
+long_imputed_data_restricted <- long_imputed_data_restricted[order(long_imputed_data_restricted$.imp, long_imputed_data_restricted$.id),]
+```
+
+## Cleaning Long Imputed dataset_restricted
+
+```{r}
+#Recoding character variables as factors
+long_imputed_data_restricted$Insurance <- factor(long_imputed_data_restricted$Insurance)
+levels(long_imputed_data_restricted$Insurance)
+
+long_imputed_data_restricted$FPL_Level <- factor(long_imputed_data_restricted$FPL_Level)
+levels(long_imputed_data_restricted$FPL_Level)
+
+long_imputed_data_restricted$On_Hormones <- factor(long_imputed_data_restricted$On_Hormones)
+levels(long_imputed_data_restricted$On_Hormones)
+
+long_imputed_data_restricted$On_PrEP <- factor(long_imputed_data_restricted$On_PrEP)
+levels(long_imputed_data_restricted$On_PrEP)
+
+long_imputed_data_restricted$HIV_Status <- factor(long_imputed_data_restricted$HIV_Status)
+levels(long_imputed_data_restricted$HIV_Status)
+
+long_imputed_data_restricted$HIV_Suppressed <- factor(long_imputed_data_restricted$HIV_Suppressed)
+levels(long_imputed_data_restricted$HIV_Suppressed)
+
+long_imputed_data_restricted$PHQ_Clinical <- factor(long_imputed_data_restricted$PHQ_Clinical)
+levels(long_imputed_data_restricted$PHQ_Clinical)
+```
+
+```{r}
+long_imputed_data_restricted <- mutate(long_imputed_data_restricted, HIV_Risk = case_when(
+  (HIV_Status == "HIV-") & (On_PrEP == "No") ~ 0,
+  (HIV_Status == "HIV-") & (On_PrEP == "Yes") ~ 1,
+  (HIV_Status == "HIV+") & (HIV_Suppressed == "<200 copies") ~ 2,
+  (HIV_Status == "HIV+") & (HIV_Suppressed == "200+ copies") ~ 3
+))
+
+long_imputed_data_restricted$HIV_Risk <- factor(long_imputed_data_restricted$HIV_Risk)
+
+levels(long_imputed_data_restricted$HIV_Risk) <- c("HIV- & Not on PrEP", "HIV- & On PrEP", 
+                                     "HIV+ & Virally Suppressed", 
+                                     "HIV+ & Non-Virally Suppressed")
+
+```
+
+```{r}
+library(dplyr)
+
+long_imputed_data_restricted <- mutate(long_imputed_data_restricted, SAB = case_when(
+  Gender == "Male" | Gender == "Nonbinary AFAB" ~ 0,
+  Gender == "Female" | Gender == "Nonbinary AMAB" ~ 1
+))
+
+long_imputed_data_restricted$SAB <- factor(long_imputed_data_restricted$SAB)
+levels(long_imputed_data_restricted$SAB) <- c("AFAB", "AMAB")
+
+table(long_imputed_data_restricted$SAB, useNA = 'always')
+```
+
+
+```{r}
+long_imputed_data_restricted <- mutate(long_imputed_data_restricted, PHQ_Numeric = case_when(
+  PHQ_Clinical == "No" ~ 0,
+  PHQ_Clinical == "Yes" ~ 1
+))
+```
+
+## Creating Site Stratified Datasets
+
+```{r}
+fh_long_data <- long_imputed_data_restricted[which(long_imputed_data_restricted$Site == "FH"),]
+
+cl_long_data <- long_imputed_data_restricted[which(long_imputed_data_restricted$Site == "CL"),]
+```
+
+
+## Creating dataset_restricted List
+
+```{r}
+imputed_data_restricted_list <- split(long_imputed_data_restricted, f = long_imputed_data_restricted$.imp)
+
+fh_long_data_list <- split(fh_long_data, f = fh_long_data$.imp)
+
+cl_long_data_list <- split(cl_long_data, f = cl_long_data$.imp)
+```
+
+## GEE Modeling Across Datasets
+
+```{r}
+library(miceadds)
+
+imputed_mids_restricted <- datalist2mids(imputed_data_restricted_list)
+```
+
+## Bivariate Models (Restricted)
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_hormones_restricted <- with(imputed_mids_restricted, exp <- geeglm(PHQ_Numeric ~ On_Hormones + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_hormones_restricted <- pool(PHQ_hormones_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_hormones_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_site_restricted <- with(imputed_mids_restricted, exp <- geeglm(PHQ_Numeric ~ Site + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_site_restricted <- pool(PHQ_site_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_site_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_age_restricted <- with(imputed_mids_restricted, exp <- geeglm(PHQ_Numeric ~ AgeCat + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_age_restricted <- pool(PHQ_age_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_age_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_gender_restricted <- with(imputed_mids_restricted, exp <- geeglm(PHQ_Numeric ~ relevel(Gender, ref = "Male") + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_gender_restricted <- pool(PHQ_gender_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_gender_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_race_restricted <- with(imputed_mids_restricted, exp <- geeglm(PHQ_Numeric ~ relevel(Race, ref = "White") + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_race_restricted <- pool(PHQ_race_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_race_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_ethnicity_restricted <- with(imputed_mids_restricted, exp <- geeglm(PHQ_Numeric ~ relevel(Ethnicity, ref = "Not Hispanic") + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_ethnicity_restricted <- pool(PHQ_ethnicity_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_ethnicity_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_insurance_restricted <- with(imputed_mids_restricted, exp <- geeglm(PHQ_Numeric ~ Insurance + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_insurance_restricted <- pool(PHQ_insurance_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_insurance_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_fpl_restricted <- with(imputed_mids_restricted, exp <- geeglm(PHQ_Numeric ~ relevel(FPL_Level, ref = "251%+") + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_fpl_restricted <- pool(PHQ_fpl_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_fpl_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_hiv_restricted <- with(imputed_mids_restricted, exp <- geeglm(PHQ_Numeric ~ HIV_Risk + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_hiv_restricted <- pool(PHQ_hiv_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_hiv_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_years_restricted <- with(imputed_mids_restricted, exp <- geeglm(PHQ_Numeric ~ cohort_years + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_years_restricted <- pool(PHQ_years_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_years_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+## Multivariable Model (Restricted)
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_adjusted_restricted <- with(imputed_mids_restricted, exp <- geeglm(PHQ_Numeric ~ On_Hormones + Site + AgeCat + relevel(Gender, ref = "Male") + relevel(Race, ref = "White") + 
+                                                   relevel(Ethnicity, ref = "Not Hispanic") + Insurance + relevel(FPL_Level, ref = "251%+") + 
+                                                     HIV_Risk + cohort_years + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_adjusted_restricted <- pool(PHQ_adjusted_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_adjusted_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_adjusted_restricted_2 <- with(imputed_mids_restricted, exp <- geeglm(PHQ_Numeric ~ On_Hormones + Site + AgeCat + relevel(SAB, ref = "AFAB") + relevel(Race, ref = "White") + 
+                                                   relevel(Ethnicity, ref = "Not Hispanic") + Insurance + relevel(FPL_Level, ref = "251%+") + 
+                                                     HIV_Risk + cohort_years + Obs_Year + On_Hormones*relevel(SAB, ref = "AFAB"), family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_adjusted_restricted_2 <- pool(PHQ_adjusted_restricted_2)
+
+options(digits = 3)
+options(scipen = 9)
+
+summary(PHQ_combined_adjusted_restricted_2, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(EValue)
+
+evalues.RR(0.838, lo = 0.712, hi = 0.985)
+```
+
+
+## Interaction Models
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_ageint_restricted <- with(imputed_mids_restricted, exp <- geeglm(PHQ_Numeric ~ On_Hormones + AgeCat + On_Hormones*AgeCat + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_ageint_restricted <- pool(PHQ_ageint_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_ageint_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_genderint_restricted <- with(imputed_mids_restricted, exp <- geeglm(PHQ_Numeric ~ On_Hormones + relevel(Gender, ref = "Male") + On_Hormones*relevel(Gender, ref = "Male") + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_genderint_restricted <- pool(PHQ_genderint_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_genderint_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_sexint_restricted <- with(imputed_mids_restricted, exp <- geeglm(PHQ_Numeric ~ On_Hormones + relevel(SAB, ref = "AFAB") + On_Hormones*relevel(SAB, ref = "AFAB") + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_sexint_restricted <- pool(PHQ_sexint_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_sexint_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_raceint_restricted <- with(imputed_mids_restricted, exp <- geeglm(PHQ_Numeric ~ On_Hormones + relevel(Race_Three, ref = "White") + On_Hormones*relevel(Race_Three, ref = "White") + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_raceint_restricted <- pool(PHQ_raceint_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_raceint_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+
+## Fenway Health Models
+
+```{r}
+library(miceadds)
+
+imputed_mids_fh <- datalist2mids(fh_long_data_list)
+```
+
+## Bivariate Models (Restricted)
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_hormones_restricted <- with(imputed_mids_fh, exp <- geeglm(PHQ_Numeric ~ On_Hormones + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_hormones_restricted <- pool(PHQ_hormones_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_hormones_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_age_restricted <- with(imputed_mids_fh, exp <- geeglm(PHQ_Numeric ~ AgeCat + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_age_restricted <- pool(PHQ_age_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_age_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_gender_restricted <- with(imputed_mids_fh, exp <- geeglm(PHQ_Numeric ~ relevel(Gender, ref = "Male") + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_gender_restricted <- pool(PHQ_gender_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_gender_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_race_restricted <- with(imputed_mids_fh, exp <- geeglm(PHQ_Numeric ~ relevel(Race, ref = "White") + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_race_restricted <- pool(PHQ_race_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_race_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_ethnicity_restricted <- with(imputed_mids_fh, exp <- geeglm(PHQ_Numeric ~ relevel(Ethnicity, ref = "Not Hispanic") + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_ethnicity_restricted <- pool(PHQ_ethnicity_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_ethnicity_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_insurance_restricted <- with(imputed_mids_fh, exp <- geeglm(PHQ_Numeric ~ Insurance + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_insurance_restricted <- pool(PHQ_insurance_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_insurance_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_fpl_restricted <- with(imputed_mids_fh, exp <- geeglm(PHQ_Numeric ~ relevel(FPL_Level, ref = "251%+") + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_fpl_restricted <- pool(PHQ_fpl_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_fpl_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_hiv_restricted <- with(imputed_mids_fh, exp <- geeglm(PHQ_Numeric ~ HIV_Risk + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_hiv_restricted <- pool(PHQ_hiv_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_hiv_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_years_restricted <- with(imputed_mids_fh, exp <- geeglm(PHQ_Numeric ~ cohort_years + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_years_restricted <- pool(PHQ_years_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_years_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+## Multivariable Model (Restricted)
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_adjusted_restricted <- with(imputed_mids_fh, exp <- geeglm(PHQ_Numeric ~ On_Hormones + AgeCat + relevel(Gender, ref = "Male") + relevel(Race, ref = "White") + 
+                                                   relevel(Ethnicity, ref = "Not Hispanic") + Insurance + relevel(FPL_Level, ref = "251%+") + 
+                                                     HIV_Risk + cohort_years + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_adjusted_restricted <- pool(PHQ_adjusted_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_adjusted_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+
+## Callen-Lorde Models
+
+```{r}
+library(miceadds)
+
+imputed_mids_cl <- datalist2mids(cl_long_data_list)
+```
+
+## Bivariate Models (Restricted)
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_hormones_restricted <- with(imputed_mids_cl, exp <- geeglm(PHQ_Numeric ~ On_Hormones + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_hormones_restricted <- pool(PHQ_hormones_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_hormones_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_age_restricted <- with(imputed_mids_cl, exp <- geeglm(PHQ_Numeric ~ AgeCat + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_age_restricted <- pool(PHQ_age_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_age_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_gender_restricted <- with(imputed_mids_cl, exp <- geeglm(PHQ_Numeric ~ relevel(Gender, ref = "Male") + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_gender_restricted <- pool(PHQ_gender_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_gender_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_race_restricted <- with(imputed_mids_cl, exp <- geeglm(PHQ_Numeric ~ relevel(Race_Three, ref = "White") + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_race_restricted <- pool(PHQ_race_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_race_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_ethnicity_restricted <- with(imputed_mids_cl, exp <- geeglm(PHQ_Numeric ~ relevel(Ethnicity, ref = "Not Hispanic") + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_ethnicity_restricted <- pool(PHQ_ethnicity_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_ethnicity_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_insurance_restricted <- with(imputed_mids_cl, exp <- geeglm(PHQ_Numeric ~ Insurance + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_insurance_restricted <- pool(PHQ_insurance_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_insurance_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_fpl_restricted <- with(imputed_mids_cl, exp <- geeglm(PHQ_Numeric ~ relevel(FPL_Level, ref = "251%+") + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_fpl_restricted <- pool(PHQ_fpl_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_fpl_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_hiv_restricted <- with(imputed_mids_cl, exp <- geeglm(PHQ_Numeric ~ HIV_Risk + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_hiv_restricted <- pool(PHQ_hiv_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_hiv_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_years_restricted <- with(imputed_mids_cl, exp <- geeglm(PHQ_Numeric ~ cohort_years + Obs_Year, family = poisson(link = "log"), 
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_years_restricted <- pool(PHQ_years_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_years_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
+
+## Multivariable Model (Restricted)
+
+```{r}
+library(mice)
+library(geepack)
+
+PHQ_adjusted_restricted <- with(imputed_mids_cl, exp <- geeglm(PHQ_Numeric ~ On_Hormones + AgeCat + relevel(Gender, ref = "Male") + relevel(Race_Three, ref = "White") + 
+                                                   relevel(Ethnicity, ref = "Not Hispanic") + Insurance + relevel(FPL_Level, ref = "251%+") + 
+                                                     HIV_Risk + cohort_years + Obs_Year, family = poisson(link = "log"),
+                                                 id = ID, waves = Obs_Year, corstr = "exchangeable"))
+```
+
+```{r}
+#Pooling estimates across datasets
+
+PHQ_combined_adjusted_restricted <- pool(PHQ_adjusted_restricted)
+
+options(digits = 3)
+
+summary(PHQ_combined_adjusted_restricted, conf.int = TRUE, conf.level = 0.95, exponentiate = TRUE)
+```
