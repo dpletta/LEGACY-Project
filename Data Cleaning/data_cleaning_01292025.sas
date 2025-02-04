@@ -812,22 +812,7 @@ data survey (where = (Age >= 18 or Age = .));
 		else if 50 <= Age <= 59 then AgeCatTen = 3;
 		else if 60 <= Age <= 69 then AgeCatTen = 4;
 		else if 70 <= Age <= 100 then AgeCatTen = 5;
-	if gender = 99 then gender = .;
-	if gender = . then GenderCat = .;
-		else if gender = 1 or gender = 3 then GenderCat = 1; /*Trans man*/
-		else if gender = 2 or gender = 4 then GenderCat = 2; /*Trans woman*/
-	if gender_other in ("Queer, trans masculine. He him pronouns but straddle gender still", "Trans guy", "Trans masculine",
-	"agender/transmasculine") then GenderCat = 1;
-	if gender_other in ("Female", "Trans Feminine", "Trans Femme", "librafeminine") then GenderCat = 2;
-	if gender_other in ("Butch", "I would say transgender and gender non-binary - not either or", "Combination of FTM and non-binary", 
-	"Non-binary", "Non-binary Trans Woman", "Non-binary trans womxn", "Non-binary transmasculine", "Non-binary transmasculine or agender",
-	"Nonbinary", "Nonbinary / אנדרוגינוס (traditional Jewish gender)", "Nonbinary Agender/Demigirl MTF",
-	"Third", "Third gender", "Trans", "Two spirit", "Witch", "non-binary", "nonbinary", "nonbinary trans guy",
-	"nonbinary transmasc", "post-gendered", "transgender ftm, Nonbinary", "transgender non-binary",
-	"transmasculine non binary") then gender = 5; *nonbinary;
-	if gender_other in ("Genderless") then gender = 6; *agender;
-	if sex_assigned = 2 and gender in (5,6,7) then GenderCat = 3; /*NB AFAB*/
-	if sex_assigned = 1 and gender in (5,6,7) then GenderCat = 4; /*NB AMAB*/
+	*Contact Author for Gender Identity Coding;
 	if sexori = 99 then sexori = .;
 	if sexori = 9 then sexori = 97; /*Recoding demisexual to another sexual orientation due to small N*/
 	if sexori = . then sexual_minority = .;
@@ -867,24 +852,7 @@ data survey (where = (Age >= 18 or Age = .));
 		else if race_basesurvey = 5 then racial_minority = 0;
 		else if race_basesurvey in (1,2,3,4,6,7,8) then racial_minority = 1;
 		else if multirace > 1 then racial_minority = 1;
-	if edu = 99 then edu = .;
-	if edu = . then EduCat = .;
-		else if 1 <= edu <= 4 then EduCat = 1; /*High school degree or less*/
-		else if edu = 5 or edu = 7 then EduCat = 2; /*Some college, associate degree, technical/vocational school*/
-		else if edu = 6 or edu = 8 then EduCat = 3; /*College degree*/
-		else if edu = 9 then EduCat = 4; /*Graduate degree*/
-		else if edu = 97 then EduCat = 97; /*Another form of education*/
-	if edu_other in ("MD", "Completed Master's degree, now pursuing doctorate", "Ph.D", "PharmD (Pharmacist) - Doctorate level", 
-	"juris doctor", "Graduate certifÌcate", "completed grad school and am enrolled in a 2nd masters degree program") then EduCat = 4;
-		else if edu_other in ("Senior in college", "Trade school", "Currently in college") then EduCat = 2;
-		else if edu_other in ("Technical/Vocational High School uncompleted with no diploma") then EduCat = 1;
-		else if edu_other in ("In Graduate School") then EduCat = 3;
-	if EduCat = . then GradDegree = .;
-		else if EduCat in (1, 2, 3, 97) then GradDegree = 0;
-		else if EduCat = 4 then GradDegree = 1;
-	if EduCat = . then CollegeDegree = .;
-		else if EduCat in (1, 2, 97) then CollegeDegree = 0;
-		else if EduCat in (3, 4) then CollegeDegree = 1;
+	*Contact Author for Full Education Coding;
 	/*Sexual Partner Data*/
 	if number_partners = 99999 then number_partners = .;
 	/*HIV Tests*/
